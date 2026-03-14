@@ -1,5 +1,8 @@
-﻿.env
+.env
 .env.*
+env-*.yaml
+env-*.yml
+env-bootstrap.yaml
 backend/dev.db
 backend/storage/
 __pycache__/
@@ -15,4 +18,3 @@ __uvicorn_*.txt
 
 *.log
 *.tsbuildinfo
-
