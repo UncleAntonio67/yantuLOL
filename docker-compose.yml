@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: yantu
+      POSTGRES_USER: yantu
+      POSTGRES_PASSWORD: yantu
+    ports:
+      - "5432:5432"
+    volumes:
+      - yantu_pgdata:/var/lib/postgresql/data
+
+volumes:
+  yantu_pgdata:
+

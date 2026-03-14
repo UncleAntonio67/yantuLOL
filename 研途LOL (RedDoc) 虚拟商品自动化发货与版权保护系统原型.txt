@@ -1,0 +1,685 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  LayoutDashboard, Send, Package, Users, Settings, 
+  ShieldCheck, Copy, Mail, Search, FileText, Lock, 
+  TrendingUp, AlertCircle, CheckCircle2, XCircle, LogOut,
+  QrCode, Smartphone, Plus, Edit, X
+} from 'lucide-react';
+
+// 模拟数据
+const initialProducts = [
+  { id: 'p1', name: '2024深度学习前沿论文复现代码集', price: 199, sales: 125, file: 'dl_papers_2024.pdf', desc: '包含20篇顶会论文源码及详细复现步骤', image: '' },
+  { id: 'p2', name: '材料科学：纳米晶体合成配方与实验记录', price: 299, sales: 84, file: 'nano_crystal_lab.pdf', desc: '实验室绝密核心配方，仅供学术参考', image: '' },
+  { id: 'p3', name: 'Python量化交易核心策略源码解析', price: 149, sales: 310, file: 'quant_trading_py.pdf', desc: '实盘验证过的量化策略，年化30%+', image: '' },
+];
+
+const initialOrders = [
+  { id: 'ORD-001', buyerId: '小红薯_592A', product: '2024深度学习前沿论文复现代码集', date: '2026-03-12 10:30', status: 'active', operator: '管理员A', password: 'xyz12' },
+  { id: 'ORD-002', buyerId: '科研打工人', product: '材料科学：纳米晶体合成配方与实验记录', date: '2026-03-11 15:20', status: 'active', operator: '超级管理员', password: 'abc34' },
+  { id: 'ORD-003', buyerId: '不吃香菜', product: 'Python量化交易核心策略源码解析', date: '2026-03-10 09:15', status: 'refunded', operator: '管理员B', password: 'ref99' },
+];
+
+// 初始团队数据
+const initialTeam = [
+  { id: 't1', name: '创始人_Boss', role: 'super', avatar: '超' },
+  { id: 't2', name: '管理员_1号', role: 'normal', avatar: '管' },
+  { id: 't3', name: '管理员_2号', role: 'normal', avatar: '管' },
+];
+
+export default function RedDocAdmin() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [products, setProducts] = useState(initialProducts);
+  const [orders, setOrders] = useState(initialOrders);
+  const [teamMembers, setTeamMembers] = useState(initialTeam);
+  
+  // 发货表单状态
+  const [selectedProduct, setSelectedProduct] = useState('');
+  const [buyerId, setBuyerId] = useState('');
+  const [buyerEmail, setBuyerEmail] = useState('');
+  const [deliveryMethod, setDeliveryMethod] = useState('text'); // 发货方式状态: text, email, qrcode
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processProgress, setProcessProgress] = useState(0);
+  const [deliveryResult, setDeliveryResult] = useState(null);
+
+  // 商品管理模态框状态
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [currentEditingProduct, setCurrentEditingProduct] = useState(null);
+
+  // 团队管理模态框状态
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+
+  // 模拟发货处理流程
+  const handleDelivery = () => {
+    if (!selectedProduct || !buyerId) {
+      alert("请填写商品和买家ID");
+      return;
+    }
+    
+    setIsProcessing(true);
+    setProcessProgress(0);
+    setDeliveryResult(null);
+
+    // 模拟进度条 (< 1分钟)
+    const interval = setInterval(() => {
+      setProcessProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(interval);
+          const newOrder = {
+            id: `ORD-00${orders.length + 1}`,
+            buyerId: buyerId,
+            product: products.find(p => p.id === selectedProduct)?.name,
+            date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            status: 'active',
+            operator: '当前用户',
+            password: Math.random().toString(36).slice(-6)
+          };
+          setOrders([newOrder, ...orders]);
+          setDeliveryResult({
+            link: `https://yantulol.app/view/${newOrder.id.toLowerCase()}`,
+            password: newOrder.password,
+            method: deliveryMethod,
+            emailStatus: buyerEmail ? '已同步发送至邮箱' : '未填写邮箱'
+          });
+          setIsProcessing(false);
+          return 100;
+        }
+        return prev + 15;
+      });
+    }, 200);
+  };
+
+  // 模拟退款使密码失效
+  const handleRefund = (orderId) => {
+    setOrders(orders.map(order => 
+      order.id === orderId ? { ...order, status: 'refunded' } : order
+    ));
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    // 简易提示替代alert
+    const toast = document.createElement('div');
+    toast.textContent = '已复制到剪贴板';
+    toast.className = 'fixed top-4 right-4 bg-gray-800 text-white px-4 py-2 rounded shadow-lg z-50 transition-opacity';
+    document.body.appendChild(toast);
+    setTimeout(() => document.body.removeChild(toast), 2000);
+  };
+
+  // 保存商品（新增或修改）
+  const handleSaveProduct = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const newProd = {
+      id: currentEditingProduct ? currentEditingProduct.id : `p${products.length + 1}`,
+      name: formData.get('name'),
+      price: Number(formData.get('price')),
+      sales: currentEditingProduct ? currentEditingProduct.sales : 0,
+      file: formData.get('file') || '未上传',
+      desc: formData.get('desc') || '',
+      image: formData.get('image') || '',
+    };
+
+    if (currentEditingProduct) {
+      setProducts(products.map(p => p.id === newProd.id ? newProd : p));
+    } else {
+      setProducts([newProd, ...products]);
+    }
+    setIsProductModalOpen(false);
+  };
+
+  // 保存团队成员
+  const handleSaveTeamMember = (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+    const role = formData.get('role');
+    const name = formData.get('name');
+    
+    const newMember = {
+      id: `t${teamMembers.length + 1}`,
+      name: name,
+      role: role,
+      avatar: role === 'super' ? '超' : '管'
+    };
+    
+    setTeamMembers([...teamMembers, newMember]);
+    setIsTeamModalOpen(false);
+  };
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-gray-800">数据看板</h2>
+            {/* 核心指标 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 border-l-4 border-l-red-500">
+                <div className="text-gray-500 text-sm mb-1">今日营业额</div>
+                <div className="text-3xl font-bold text-gray-800">￥ 2,450</div>
+                <div className="text-green-500 text-xs mt-2 flex items-center"><TrendingUp className="w-3 h-3 mr-1"/> 较昨日 +12.5%</div>
+              </div>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="text-gray-500 text-sm mb-1">今日发货单数</div>
+                <div className="text-3xl font-bold text-gray-800">18</div>
+              </div>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="text-gray-500 text-sm mb-1">在售商品数</div>
+                <div className="text-3xl font-bold text-gray-800">{products.length}</div>
+              </div>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="text-gray-500 text-sm mb-1">累计退款单数</div>
+                <div className="text-3xl font-bold text-gray-800">1</div>
+              </div>
+            </div>
+
+            {/* 营收明细图表占位 */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-64 flex flex-col justify-center items-center">
+              <TrendingUp className="w-12 h-12 text-gray-300 mb-2" />
+              <p className="text-gray-400">营收趋势图表区域 (推荐集成 ECharts)</p>
+            </div>
+          </div>
+        );
+
+      case 'delivery':
+        return (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-gray-800">智能发货工作台</h2>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* 发货操作区 */}
+              <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit">
+                <h3 className="text-lg font-semibold mb-4 flex items-center text-red-600">
+                  <ShieldCheck className="w-5 h-5 mr-2" />
+                  新建加密分发
+                </h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">选择售出商品</label>
+                    <select 
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none"
+                      value={selectedProduct}
+                      onChange={(e) => setSelectedProduct(e.target.value)}
+                    >
+                      <option value="">-- 请选择商品 --</option>
+                      {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">小红书买家ID (用作水印)</label>
+                    <input 
+                      type="text" 
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none"
+                      placeholder="例如: 小红薯_8899"
+                      value={buyerId}
+                      onChange={(e) => setBuyerId(e.target.value)}
+                    />
+                  </div>
+
+                  {/* 发货方式选择 */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">发货方式</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      <button 
+                        onClick={() => setDeliveryMethod('text')}
+                        className={`py-2 flex flex-col items-center justify-center border rounded-lg transition-colors ${deliveryMethod === 'text' ? 'bg-red-50 border-red-500 text-red-600 shadow-sm' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        <Smartphone className="w-5 h-5 mb-1" />
+                        <span className="text-xs">图文私信</span>
+                      </button>
+                      <button 
+                        onClick={() => setDeliveryMethod('email')}
+                        className={`py-2 flex flex-col items-center justify-center border rounded-lg transition-colors ${deliveryMethod === 'email' ? 'bg-red-50 border-red-500 text-red-600 shadow-sm' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        <Mail className="w-5 h-5 mb-1" />
+                        <span className="text-xs">发至邮箱</span>
+                      </button>
+                      <button 
+                        onClick={() => setDeliveryMethod('qrcode')}
+                        className={`py-2 flex flex-col items-center justify-center border rounded-lg transition-colors ${deliveryMethod === 'qrcode' ? 'bg-red-50 border-red-500 text-red-600 shadow-sm' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        <QrCode className="w-5 h-5 mb-1" />
+                        <span className="text-xs">专属二维码</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {deliveryMethod === 'email' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">买家邮箱</label>
+                      <input 
+                        type="email" 
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none"
+                        placeholder="buyer@example.com"
+                        value={buyerEmail}
+                        onChange={(e) => setBuyerEmail(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  
+                  <button 
+                    onClick={handleDelivery}
+                    disabled={isProcessing}
+                    className={`w-full py-3 rounded-lg font-medium text-white transition-colors ${
+                      isProcessing ? 'bg-red-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700 shadow-md shadow-red-200'
+                    }`}
+                  >
+                    {isProcessing ? '文件加密打水印中...' : '生成专属资料'}
+                  </button>
+
+                  {/* 进度条 */}
+                  {isProcessing && (
+                    <div className="w-full bg-gray-200 rounded-full h-2 mt-4 overflow-hidden">
+                      <div className="bg-red-500 h-2 rounded-full transition-all duration-200 ease-out" style={{ width: `${processProgress}%` }}></div>
+                    </div>
+                  )}
+
+                  {/* 发货结果 */}
+                  {deliveryResult && !isProcessing && (
+                    <div className="mt-4 p-4 bg-red-50 border border-red-100 rounded-lg animate-in fade-in slide-in-from-top-4">
+                      <div className="flex items-center text-green-600 mb-2 font-medium">
+                        <CheckCircle2 className="w-5 h-5 mr-1" /> 处理完成
+                      </div>
+                      <div className="text-sm text-gray-700 space-y-2">
+                        {deliveryResult.method === 'qrcode' ? (
+                          <div className="flex flex-col items-center justify-center p-4 bg-white rounded border border-gray-200 mb-2">
+                            <QrCode className="w-24 h-24 text-gray-800" />
+                            <p className="text-xs text-gray-500 mt-2">截图发送，使用微信扫码访问</p>
+                          </div>
+                        ) : (
+                          <p><strong>专用阅读链接:</strong> <br/><span className="text-blue-600 break-all">{deliveryResult.link}</span></p>
+                        )}
+                        <p><strong>独立密码:</strong> <span className="font-mono bg-white px-2 py-1 rounded border text-red-600 font-bold">{deliveryResult.password}</span></p>
+                        
+                        {deliveryResult.method === 'email' && (
+                          <p className="text-xs text-blue-600 flex items-center"><Mail className="w-3 h-3 mr-1"/> 系统已自动发送邮件至: {buyerEmail || '未填写邮箱'}</p>
+                        )}
+                        <p className="text-xs text-gray-500">已烧录水印: {buyerId} | 禁用下载打印</p>
+                      </div>
+                      <button 
+                        onClick={() => copyToClipboard(`【研途LOL】亲，您的专属资料已生成！\n${deliveryResult.method === 'qrcode' ? '请保存上方二维码扫码访问' : `阅读链接: ${deliveryResult.link}`}\n专属密码: ${deliveryResult.password}\n注意：文件已打入您的专属水印，且密码仅限您本人使用，请勿外传。`)}
+                        className="mt-3 w-full flex justify-center items-center py-2 bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 text-sm font-medium transition-colors"
+                      >
+                        <Copy className="w-4 h-4 mr-2" /> 一键复制发货文案
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 发货历史与售后区 */}
+              <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">最近发货记录 & 售后管控</h3>
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                    <input type="text" placeholder="搜索买家ID或订单..." className="pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none" />
+                  </div>
+                </div>
+                
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 text-gray-500 text-sm border-b">
+                        <th className="p-3 font-medium">订单编号</th>
+                        <th className="p-3 font-medium">买家ID</th>
+                        <th className="p-3 font-medium">所属商品</th>
+                        <th className="p-3 font-medium">阅读密码</th>
+                        <th className="p-3 font-medium">状态</th>
+                        <th className="p-3 font-medium text-right">操作 (售后)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orders.map(order => (
+                        <tr key={order.id} className="border-b hover:bg-gray-50 text-sm">
+                          <td className="p-3 text-gray-800">{order.id}</td>
+                          <td className="p-3 font-medium text-red-600">{order.buyerId}</td>
+                          <td className="p-3 text-gray-600 truncate max-w-[150px]" title={order.product}>{order.product}</td>
+                          <td className="p-3 font-mono text-gray-600">{order.password}</td>
+                          <td className="p-3">
+                            {order.status === 'active' ? 
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"><CheckCircle2 className="w-3 h-3 mr-1"/> 生效中</span> :
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-500"><XCircle className="w-3 h-3 mr-1"/> 已失效</span>
+                            }
+                          </td>
+                          <td className="p-3 text-right">
+                            {order.status === 'active' ? (
+                              <button 
+                                onClick={() => handleRefund(order.id)}
+                                className="text-red-500 hover:text-red-700 text-xs font-medium border border-red-200 hover:bg-red-50 px-3 py-1.5 rounded transition-colors"
+                              >
+                                退款并吊销访问权限
+                              </button>
+                            ) : (
+                              <span className="text-gray-400 text-xs">权限已阻断</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'products':
+        return (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-gray-800">商品与资料管理</h2>
+              <button 
+                onClick={() => { setCurrentEditingProduct(null); setIsProductModalOpen(true); }}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm flex items-center transition-colors"
+              >
+                <Plus className="w-4 h-4 mr-1" /> 新增商品资料
+              </button>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 text-sm border-b">
+                    <th className="p-4 font-medium">商品名称</th>
+                    <th className="p-4 font-medium">原文件</th>
+                    <th className="p-4 font-medium">售价</th>
+                    <th className="p-4 font-medium">销量</th>
+                    <th className="p-4 font-medium text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {products.map(p => (
+                    <tr key={p.id} className="hover:bg-gray-50">
+                      <td className="p-4 font-medium text-gray-800">{p.name}</td>
+                      <td className="p-4 text-sm text-gray-500 flex items-center">
+                        <FileText className="w-4 h-4 mr-1 text-red-500"/> {p.file}
+                      </td>
+                      <td className="p-4 text-gray-800 font-medium">￥{p.price}</td>
+                      <td className="p-4 text-gray-600">{p.sales} 份</td>
+                      <td className="p-4 text-right space-x-3">
+                        <button 
+                          onClick={() => { setCurrentEditingProduct(p); setIsProductModalOpen(true); }}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium inline-flex items-center transition-colors"
+                        >
+                          <Edit className="w-4 h-4 mr-1" /> 编辑
+                        </button>
+                        <button className="text-gray-500 hover:text-gray-800 text-sm font-medium transition-colors">明细</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+
+      case 'team':
+        return (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-bold text-gray-800">团队权限管理</h2>
+              <button 
+                onClick={() => setIsTeamModalOpen(true)}
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-sm flex items-center transition-colors"
+              >
+                <Plus className="w-4 h-4 mr-1" /> 添加管理员
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {teamMembers.map(member => (
+                <div key={member.id} className={`bg-white p-5 rounded-xl border shadow-sm relative overflow-hidden ${member.role === 'super' ? 'border-red-200' : 'border-gray-200'}`}>
+                  {member.role === 'super' && (
+                    <div className="absolute top-0 right-0 bg-red-500 text-white text-xs px-2 py-1 rounded-bl-lg">超级管理员</div>
+                  )}
+                  <div className={`flex items-center space-x-3 mb-4 ${member.role === 'super' ? 'mt-2' : ''}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${member.role === 'super' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'}`}>
+                      {member.avatar}
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-800">{member.name}</div>
+                      <div className="text-xs text-gray-500">
+                        {member.role === 'super' ? '拥有所有权限' : '发货/售后/看营收'}
+                      </div>
+                    </div>
+                  </div>
+                  {member.role !== 'super' && (
+                    <div className="flex justify-end space-x-2 border-t pt-3 mt-2">
+                      <button className="text-xs text-gray-500 hover:text-blue-600 transition-colors">编辑权限</button>
+                      <button 
+                        onClick={() => setTeamMembers(teamMembers.filter(m => m.id !== member.id))}
+                        className="text-xs text-red-500 hover:text-red-700 transition-colors"
+                      >
+                        移除
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg flex items-start">
+              <AlertCircle className="w-5 h-5 text-yellow-600 mr-2 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-yellow-800">
+                <strong>权限说明：</strong> 超级管理员可以管理团队成员、增删商品。普通管理员可以进行日常发货操作、处理售后退款，<strong>并且能够查看数据看板（营收情况）</strong>。
+              </div>
+            </div>
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex font-sans">
+      {/* 侧边栏 */}
+      <div className="w-64 bg-white border-r border-gray-200 flex-col hidden md:flex">
+        <div className="h-16 flex items-center px-6 border-b border-gray-100">
+          <div className="w-8 h-8 bg-red-600 rounded-lg flex items-center justify-center mr-3 shadow-sm">
+            <ShieldCheck className="w-5 h-5 text-white" />
+          </div>
+          <span className="text-xl font-bold tracking-wider text-gray-800">研途LOL</span>
+        </div>
+        
+        <nav className="flex-1 py-6 px-4 space-y-2">
+          <button 
+            onClick={() => setActiveTab('dashboard')}
+            className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors ${activeTab === 'dashboard' ? 'bg-red-50 text-red-600 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <LayoutDashboard className="w-5 h-5 mr-3" /> 数据总览
+          </button>
+          <button 
+            onClick={() => setActiveTab('delivery')}
+            className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors ${activeTab === 'delivery' ? 'bg-red-50 text-red-600 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <Send className="w-5 h-5 mr-3" /> 发货与售后
+          </button>
+          <button 
+            onClick={() => setActiveTab('products')}
+            className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors ${activeTab === 'products' ? 'bg-red-50 text-red-600 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <Package className="w-5 h-5 mr-3" /> 商品库管理
+          </button>
+          <button 
+            onClick={() => setActiveTab('team')}
+            className={`w-full flex items-center px-4 py-3 rounded-xl transition-colors ${activeTab === 'team' ? 'bg-red-50 text-red-600 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+          >
+            <Users className="w-5 h-5 mr-3" /> 团队管理
+          </button>
+        </nav>
+
+        <div className="p-4 border-t border-gray-100">
+          <button className="w-full flex items-center px-4 py-2 text-gray-500 hover:text-red-600 transition-colors">
+            <LogOut className="w-5 h-5 mr-3" /> 退出登录
+          </button>
+        </div>
+      </div>
+
+      {/* 主内容区 */}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+        {/* 顶部导航 */}
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 lg:px-8">
+          <div className="text-gray-500 font-medium md:hidden">研途LOL系统</div>
+          <div className="hidden md:block"></div> {/* 占位 */}
+          <div className="flex items-center space-x-4">
+            <div className="text-sm text-gray-500 flex items-center">
+              <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div> 
+              系统运行正常
+            </div>
+            <div className="h-6 w-px bg-gray-200"></div>
+            <div className="flex items-center cursor-pointer hover:bg-gray-50 px-2 py-1 rounded transition-colors">
+              <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-600 font-bold mr-2 text-sm">超</div>
+              <span className="text-sm font-medium text-gray-700">创始人_Boss</span>
+            </div>
+          </div>
+        </header>
+
+        {/* 滚动内容区 */}
+        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+          <div className="max-w-6xl mx-auto">
+            {renderContent()}
+          </div>
+        </main>
+      </div>
+
+      {/* 商品管理模态框 (增删改查) */}
+      {isProductModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-5 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800">
+                {currentEditingProduct ? '修改商品详情' : '新增商品资料'}
+              </h3>
+              <button onClick={() => setIsProductModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveProduct} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">商品名称</label>
+                <input 
+                  name="name"
+                  type="text" 
+                  defaultValue={currentEditingProduct?.name || ''}
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">商品描述</label>
+                <textarea 
+                  name="desc"
+                  rows="2"
+                  placeholder="例如: 包含20篇顶会论文源码及详细复现步骤"
+                  defaultValue={currentEditingProduct?.desc || ''}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">封面图片 (URL 选填)</label>
+                <input 
+                  name="image"
+                  type="text" 
+                  placeholder="https://..."
+                  defaultValue={currentEditingProduct?.image || ''}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">关联源文件 (PDF/Zip)</label>
+                <input 
+                  name="file"
+                  type="text" 
+                  placeholder="例如: ai_paper_2025.pdf"
+                  defaultValue={currentEditingProduct?.file || ''}
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">售价 (元)</label>
+                <input 
+                  name="price"
+                  type="number" 
+                  min="0"
+                  step="0.01"
+                  defaultValue={currentEditingProduct?.price || ''}
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none transition-colors"
+                />
+              </div>
+              <div className="pt-4 flex justify-end space-x-3">
+                <button 
+                  type="button" 
+                  onClick={() => setIsProductModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-sm transition-colors"
+                >
+                  保存商品
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 团队成员管理模态框 */}
+      {isTeamModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex justify-center items-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-5 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800">添加管理员</h3>
+              <button onClick={() => setIsTeamModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveTeamMember} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">成员昵称</label>
+                <input 
+                  name="name"
+                  type="text" 
+                  placeholder="例如: 运营_小李"
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">角色权限</label>
+                <select 
+                  name="role"
+                  required
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 outline-none transition-colors"
+                >
+                  <option value="normal">普通管理员 (支持发货、售后、查看营收数据)</option>
+                  <option value="super">超级管理员 (拥有全部权限，含商品/团队管理)</option>
+                </select>
+              </div>
+              <div className="pt-4 flex justify-end space-x-3">
+                <button 
+                  type="button" 
+                  onClick={() => setIsTeamModalOpen(false)}
+                  className="px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+                >
+                  取消
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-sm transition-colors"
+                >
+                  确认添加
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

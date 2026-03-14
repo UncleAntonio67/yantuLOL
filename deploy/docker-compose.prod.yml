@@ -1,0 +1,79 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-yantu}
+      POSTGRES_USER: ${POSTGRES_USER:-yantu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-yantu}
+    volumes:
+      - yantu_pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Core
+      ENVIRONMENT: ${ENVIRONMENT:-prod}
+      BASE_URL: ${BASE_URL}
+      ADMIN_FRONTEND_BASE_URL: ${ADMIN_FRONTEND_BASE_URL}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+      VIEWER_TOKEN_EXPIRE_MINUTES: ${VIEWER_TOKEN_EXPIRE_MINUTES:-15}
+
+      # Bootstrap (one-time)
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NICKNAME: ${BOOTSTRAP_ADMIN_NICKNAME:-Super Admin}
+
+      # Storage inside container
+      SOURCE_PDF_DIR: /data/source_pdfs
+      PRODUCT_IMAGE_DIR: /data/product_images
+
+      WATERMARK_FONT_FILE: ${WATERMARK_FONT_FILE:-}
+      LEGAL_DISCLAIMER_TEXT: ${LEGAL_DISCLAIMER_TEXT:-}
+
+      # SMTP
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    volumes:
+      - yantu_data:/data
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  yantu_pgdata:
+  yantu_data:
+  caddy_data:
+  caddy_config:

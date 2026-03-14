@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: #fffaf7;
+  --ink: #111827;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(900px 420px at 10% 10%, rgba(244, 63, 94, 0.12), transparent 60%),
+    radial-gradient(700px 520px at 90% 30%, rgba(225, 29, 72, 0.10), transparent 55%),
+    linear-gradient(180deg, var(--paper), #ffffff 55%);
+  color: var(--ink);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Noto Sans CJK SC",
+    "Segoe UI",
+    Arial;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+/* Tailwind's line-clamp plugin isn't enabled in this repo; keep a minimal clamp utility. */
+.line-clamp-2 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.line-clamp-3 {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}

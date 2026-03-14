@@ -1,0 +1,12 @@
+﻿# Exclude local env files and dev artifacts from Cloud Build upload.
+.env
+.env.*
+backend/dev.db
+backend/storage/
+**/__pycache__/
+*.pyc
+node_modules/
+frontend/node_modules/
+frontend/dist/
+logs/
+.DS_Store

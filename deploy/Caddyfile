@@ -1,0 +1,24 @@
+{
+  email {$ACME_EMAIL}
+  # For local troubleshooting you can enable debug:
+  # debug
+}
+
+{$DOMAIN} {
+  encode zstd gzip
+
+  # Basic security headers
+  header {
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "geolocation=(), microphone=(), camera=()"
+  }
+
+  # Backend endpoints
+  @backend path /api/* /static/* /docs* /openapi.json
+  reverse_proxy @backend backend:8000
+
+  # Everything else goes to the React app (nginx container)
+  reverse_proxy frontend:80
+}

@@ -1,0 +1,12 @@
+﻿{
+    "rewrites":  [
+                     {
+                         "source":  "/api/(.*)",
+                         "destination":  "https://REPLACE_WITH_CLOUD_RUN_URL/api/$1"
+                     },
+                     {
+                         "source":  "/static/(.*)",
+                         "destination":  "https://REPLACE_WITH_CLOUD_RUN_URL/static/$1"
+                     }
+                 ]
+}

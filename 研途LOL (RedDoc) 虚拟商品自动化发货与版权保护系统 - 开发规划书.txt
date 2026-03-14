@@ -1,0 +1,140 @@
+研途LOL (RedDoc) 虚拟商品自动化发货与版权保护系统 - 开发规划书
+
+一、 项目概述
+本项目是一个面向小红书虚拟科研资料售卖团队的管理后台。核心解决“虚拟文件发货慢”、“容易被二次倒卖（缺乏版权保护）”以及“退款后文件无法追回”的痛点。
+核心机制：通过生成“带买家ID专属满屏水印的在线阅读链接 + 独立密码”，替代直接发送源文件。退款时通过吊销密码实现文件访问权限的阻断。
+
+二、 技术栈选型建议 (推荐给 AI 的上下文)
+
+前端 (管理后台 + 客户阅读端): React 18 + Vite / Next.js, Tailwind CSS, Lucide React (图标), React Router, PDF.js (用于前端安全渲染)。
+
+后端 (核心业务 + 文件处理): Python 3.10+ + FastAPI。强推 Python，因为处理 PDF 加密和打水印（使用 PyMuPDF / fitz 或 ReportLab）效率最高。
+
+数据库: PostgreSQL (关系型，适合处理订单与营收报表) + SQLAlchemy (ORM)。
+
+文件存储: 本地存储 或 阿里云 OSS / 腾讯云 COS (设为私有 Bucket)。
+
+三、 数据库设计 (Schema 规划)
+请基于以下模型生成实体类和建表语句：
+
+TeamMember (团队成员表)
+
+id: UUID (Primary Key)
+
+username: String (登录名)
+
+password_hash: String (加密密码)
+
+nickname: String (展示名称，如“管理员_1号”)
+
+role: Enum ('super_admin', 'normal_admin')
+
+created_at: Datetime
+
+Product (商品与资料表)
+
+id: String (Primary Key, e.g., 'p1')
+
+name: String (商品名称)
+
+description: Text (商品描述)
+
+price: Decimal (售价)
+
+source_file_path: String (原始未加密 PDF 文件在 OSS/本地的绝对路径)
+
+cover_image: String (封面图 URL)
+
+sales_count: Integer (默认 0)
+
+is_active: Boolean (上下架状态)
+
+Order (发货单与授权表 - 核心表)
+
+id: String (Primary Key, e.g., 'ORD-20260312-0001')
+
+product_id: Foreign Key -> Product.id
+
+buyer_id: String (小红书买家 ID，用于生成水印)
+
+buyer_email: String (选填)
+
+delivery_method: Enum ('text', 'email', 'qrcode')
+
+access_password: String (6位随机独立密码)
+
+status: Enum ('active', 'refunded')  // 退款即失效
+
+operator_id: Foreign Key -> TeamMember.id (发货人)
+
+created_at: Datetime
+
+四、 核心 API 接口设计 (RESTful)
+
+管理后台 API:
+
+Auth: POST /api/admin/login -> 返回 JWT Token。
+
+Products:
+
+GET /api/admin/products -> 获取商品列表及销量。
+
+POST /api/admin/products -> 新增商品（含文件上传）。
+
+PUT /api/admin/products/{id} -> 修改商品。
+
+Team:
+
+GET /api/admin/team -> 获取团队成员。
+
+POST /api/admin/team -> 添加管理员 (仅 super_admin 可用)。
+
+Orders (发货与售后):
+
+GET /api/admin/orders -> 获取发货记录。
+
+POST /api/admin/orders/deliver -> 【核心接口】 传入 product_id, buyer_id, delivery_method。生成订单、随机密码，并返回组装好的阅读链接。
+
+POST /api/admin/orders/{id}/refund -> 标记退款，将状态置为 refunded。
+
+Dashboard: GET /api/admin/dashboard/stats -> 返回今日营业额、单数等统计数据。
+
+客户端阅读 API (公开但需密码):
+
+POST /api/viewer/auth -> 传入 order_id 和 password。验证通过返回一个有时效性的临时 Token。如果状态是 refunded 则返回 403。
+
+GET /api/viewer/document/{token} -> 【核心流处理】 根据 token 找到对应订单，读取原始 PDF，动态在内存中打上 buyer_id 水印，返回处理后的 PDF 文件流 (Content-Type: application/pdf)。
+
+五、 核心算法：动态水印与防盗机制建议 (给 AI 的提示)
+在生成后端代码时，请特别注意实现以下安全逻辑：
+
+动态水印 (On-the-fly Watermarking):
+
+不要在发货时生成并保存带水印的物理文件（浪费存储空间）。
+
+当买家通过浏览器请求阅读时，后端使用 PyMuPDF (fitz) 读取原文件，动态将 buyer_id (如 "小红薯_8899专属资料，严禁倒卖") 倾斜 45 度、降低透明度，铺满整个页面，然后直接将处理后的 bytes 作为流返回给前端。
+
+前端防下载 (React PDF 阅读器):
+
+阅读端不要使用浏览器默认的 iframe src="xxx.pdf"（极易被下载）。
+
+请使用 react-pdf 或直接引入 pdf.js，将 PDF 渲染为 canvas。
+
+屏蔽右键菜单 (onContextMenu={(e) => e.preventDefault()})。
+
+监听并拦截键盘快捷键 (Ctrl+S, Ctrl+P)。
+
+退款阻断:
+
+每次请求阅读 API，必须实时校验 Order.status == 'active'。一旦标记为退款，立刻拒绝服务。
+
+六、 给代码生成 AI 的阶段执行提示 (Codex/Cursor Prompt 示例)
+你可以分阶段将以下 Prompt 复制给 AI：
+
+Phase 1 (环境与模型): "你是一个全栈专家。我们正在开发'研途LOL'后台系统。技术栈：FastAPI + SQLAlchemy + PostgreSQL。请根据我的规划书中的『数据库设计』部分，编写全套 SQLAlchemy models.py 代码。"
+
+Phase 2 (后端 API): "基于刚才的 Models，请使用 FastAPI 编写『管理后台 API』中的 Products 和 Orders 接口。注意发货接口只要生成数据库记录和访问密码即可，不用马上处理文件。"
+
+Phase 3 (核心水印逻辑): "请使用 Python 的 PyMuPDF (fitz) 库，写一个工具函数：接收一个 PDF 文件路径和一个买家ID（字符串），在内存中将该字符串以半透明、倾斜45度铺满 PDF 的每一页，并返回修改后的 PDF bytes 数据。这个数据将用于流式返回给客户端。"
+
+Phase 4 (前端后台对接): "我有一个 React (Tailwind) 的高保真原型代码 RedDocAdmin.jsx (附上原型代码)。请将里面写死的数据 (initialProducts, initialOrders) 替换为通过 fetch/axios 调用你刚刚写好的 FastAPI 接口的真实数据交互代码。"

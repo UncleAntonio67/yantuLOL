@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.cache/
+
+vite.out.log
+vite.err.log
+npm-debug.log
+yarn-error.log
+
