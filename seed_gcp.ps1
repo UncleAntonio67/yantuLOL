@@ -40,6 +40,15 @@ function Ensure-Ok($lastExitCode, $msg) {
 
 $gcloud = Resolve-Gcloud
 
+function Invoke-GcloudViaCmd([string]$argsLine, [switch]$Quiet) {
+  # Using cmd.exe avoids PowerShell converting gcloud stderr/non-zero to NativeCommandError
+  # which would terminate the script under $ErrorActionPreference=Stop.
+  $redir = ""
+  if ($Quiet) { $redir = " >NUL 2>NUL" }
+  cmd /c "\"$gcloud\" $argsLine$redir"
+  return $LASTEXITCODE
+}
+
 Write-Host "[1/4] Using project=$ProjectId region=$Region job=$JobName"
 & $gcloud config set project $ProjectId | Out-Null
 Ensure-Ok $LASTEXITCODE "Failed to set gcloud project"
@@ -60,37 +69,20 @@ if ($Purge) { $argsList += "--purge" }
 $argsCsv = ($argsList -join ",")
 
 Write-Host "[3/4] Creating or updating Cloud Run job..."
-# Important: In newer PowerShells, stderr from native commands can surface as error records and
-# terminate the script when $ErrorActionPreference=Stop. For the "describe" probe we intentionally
-# swallow failures and branch on $LASTEXITCODE.
-$null = & $gcloud run jobs describe $JobName --region $Region 1>$null 2>$null
+& $gcloud config set run/region $Region | Out-Null
+
+$describeExit = Invoke-GcloudViaCmd "run jobs describe $JobName --region $Region" -Quiet
 if ($LASTEXITCODE -eq 0) {
-  & $gcloud run jobs update $JobName `
-    --region $Region `
-    --image $Image `
-    --command python `
-    --args $argsCsv `
-    --env-vars-file $EnvVarsFile `
-    --memory 1Gi `
-    --max-retries 0 `
-    --tasks 1 | Out-Null
-  Ensure-Ok $LASTEXITCODE "Failed to update Cloud Run job"
+  $exit = Invoke-GcloudViaCmd ("run jobs update {0} --region {1} --image {2} --command python --args {3} --env-vars-file {4} --memory 1Gi --max-retries 0 --tasks 1" -f $JobName,$Region,$Image,$argsCsv,$EnvVarsFile)
+  Ensure-Ok $exit "Failed to update Cloud Run job"
 } else {
-  & $gcloud run jobs create $JobName `
-    --region $Region `
-    --image $Image `
-    --command python `
-    --args $argsCsv `
-    --env-vars-file $EnvVarsFile `
-    --memory 1Gi `
-    --max-retries 0 `
-    --tasks 1 | Out-Null
-  Ensure-Ok $LASTEXITCODE "Failed to create Cloud Run job"
+  $exit = Invoke-GcloudViaCmd ("run jobs create {0} --region {1} --image {2} --command python --args {3} --env-vars-file {4} --memory 1Gi --max-retries 0 --tasks 1" -f $JobName,$Region,$Image,$argsCsv,$EnvVarsFile)
+  Ensure-Ok $exit "Failed to create Cloud Run job"
 }
 
 Write-Host "[4/4] Executing job (waiting for completion)..."
-& $gcloud run jobs execute $JobName --region $Region --wait
-Ensure-Ok $LASTEXITCODE "Seed job execution failed"
+$exit = Invoke-GcloudViaCmd ("run jobs execute {0} --region {1} --wait" -f $JobName,$Region)
+Ensure-Ok $exit "Seed job execution failed"
 
 Write-Host ""
 Write-Host "Seed job finished. If this was first-time bootstrap, remove BOOTSTRAP_* env vars from the Cloud Run service after you can log in."
