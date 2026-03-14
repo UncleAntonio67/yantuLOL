@@ -23,12 +23,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-Gcloud() {
+  $cmd = Get-Command gcloud.cmd -ErrorAction SilentlyContinue
+  if ($cmd) { return $cmd.Source }
+  $exe = Get-Command gcloud -ErrorAction SilentlyContinue
+  if ($exe) { return $exe.Source }
+  throw "gcloud not found on PATH"
+}
+
 function Ensure-Ok($lastExitCode, $msg) {
   if ($lastExitCode -ne 0) { throw $msg }
 }
 
+$gcloud = Resolve-Gcloud
+
 Write-Host "[1/4] Using project=$ProjectId region=$Region job=$JobName"
-gcloud config set project $ProjectId | Out-Null
+& $gcloud config set project $ProjectId | Out-Null
 Ensure-Ok $LASTEXITCODE "Failed to set gcloud project"
 
 if ([string]::IsNullOrWhiteSpace($Image)) {
@@ -47,9 +57,10 @@ if ($Purge) { $argsList += "--purge" }
 $argsCsv = ($argsList -join ",")
 
 Write-Host "[3/4] Creating or updating Cloud Run job..."
-gcloud run jobs describe $JobName --region $Region *> $null
+# On Windows, gcloud.ps1 can emit PowerShell errors; use gcloud.cmd if available and silence output.
+& $gcloud run jobs describe $JobName --region $Region 1>$null 2>$null
 if ($LASTEXITCODE -eq 0) {
-  gcloud run jobs update $JobName `
+  & $gcloud run jobs update $JobName `
     --region $Region `
     --image $Image `
     --command python `
@@ -60,7 +71,7 @@ if ($LASTEXITCODE -eq 0) {
     --tasks 1 | Out-Null
   Ensure-Ok $LASTEXITCODE "Failed to update Cloud Run job"
 } else {
-  gcloud run jobs create $JobName `
+  & $gcloud run jobs create $JobName `
     --region $Region `
     --image $Image `
     --command python `
@@ -73,7 +84,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 Write-Host "[4/4] Executing job (waiting for completion)..."
-gcloud run jobs execute $JobName --region $Region --wait
+& $gcloud run jobs execute $JobName --region $Region --wait
 Ensure-Ok $LASTEXITCODE "Seed job execution failed"
 
 Write-Host ""
