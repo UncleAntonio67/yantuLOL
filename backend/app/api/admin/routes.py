@@ -8,7 +8,7 @@ import secrets
 import shutil
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
@@ -41,6 +41,7 @@ from app.schemas.schemas import (
     TeamMemberOut,
 )
 from app.services.emailer import send_delivery_email
+from app.utils.public_url import public_frontend_base_url
 
 
 router = APIRouter()
@@ -84,11 +85,12 @@ def _generate_password() -> str:
     return secrets.token_urlsafe(9).replace("-", "").replace("_", "")[:12]
 
 
-def _viewer_url(*, order_id: str) -> str:
-    settings = get_settings()
-    return f"{settings.admin_frontend_base_url.rstrip('/')}/view/{order_id}"
-
-
+def _viewer_url(*, order_id: str, request: Request | None = None) -> str:
+    base = public_frontend_base_url(request)
+    if not base:
+        settings = get_settings()
+        base = settings.admin_frontend_base_url.rstrip("/")
+    return f"{base}/view/{order_id}"
 def _copy_text(*, viewer_url: str, password: str, buyer_id: str) -> str:
     return (
         f"【研途LOL】亲，您的专属资料已生成。\n"
@@ -147,6 +149,8 @@ def _store_product_cover_image(*, product_id: str, upload: UploadFile) -> str:
     return storage.product_cover_public_path(product_id=product_id, suffix=suffix)
 
 def _ensure_primary_attachment(*, product: Product, db: Session) -> None:
+    if not product.source_pdf_path or str(product.source_pdf_path).startswith('__'):
+        return
     """
     Upgrade legacy single-file products into the multi-attachment model on demand.
     """
@@ -692,6 +696,7 @@ def delete_product_attachment(
 @router.post("/orders/deliver", response_model=DeliverResponse)
 def deliver_order(
     payload: DeliverRequest,
+    request: Request,
     admin: TeamMember = Depends(_require_admin),
     db: Session = Depends(get_db),
 ):
@@ -700,6 +705,11 @@ def deliver_order(
     if not product or not product.is_active:
         raise HTTPException(status_code=404, detail="Product not found or inactive")
 
+
+    _ensure_primary_attachment(product=product, db=db)
+    atts_cnt = db.scalar(select(func.count()).select_from(ProductAttachment).where(ProductAttachment.product_id == product.id)) or 0
+    if int(atts_cnt) <= 0:
+        raise HTTPException(status_code=400, detail="商品未上传 PDF 附件，无法发货")
     if payload.delivery_method == "email":
         if not payload.buyer_email:
             raise HTTPException(status_code=400, detail="buyer_email is required for email delivery")
@@ -710,7 +720,7 @@ def deliver_order(
 
     order_id = _generate_order_id()
     password = _generate_password()
-    viewer_url = _viewer_url(order_id=order_id)
+    viewer_url = _viewer_url(order_id=order_id, request=request)
     copy_text = _append_legal_disclaimer(
         _copy_text(viewer_url=viewer_url, password=password, buyer_id=payload.buyer_id)
     )
@@ -944,6 +954,7 @@ def refund_order(
 @router.post("/orders/{order_id}/reset-password", response_model=ResetOrderPasswordResponse)
 def reset_order_password(
     order_id: str,
+    request: Request,
     _: TeamMember = Depends(_require_admin),
     db: Session = Depends(get_db),
 ):
@@ -960,7 +971,7 @@ def reset_order_password(
     db.add(o)
     db.commit()
 
-    viewer_url = _viewer_url(order_id=o.id)
+    viewer_url = _viewer_url(order_id=o.id, request=request)
     copy_text = _append_legal_disclaimer(_copy_text(viewer_url=viewer_url, password=new_password, buyer_id=o.buyer_id))
     return ResetOrderPasswordResponse(
         order_id=o.id,
@@ -1088,4 +1099,9 @@ def dashboard_analytics(_: TeamMember = Depends(_require_admin), db: Session = D
         revenue_ranking=revenue_ranking[:10],
         refund_rate_by_product=refund_rates[:10],
     )
+
+
+
+
+
 

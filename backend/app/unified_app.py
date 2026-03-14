@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -8,6 +8,17 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import get_settings
 from app.main import create_app
+
+
+class CachedStaticFiles(StaticFiles):
+    """Static files with aggressive caching (safe for Vite hashed assets)."""
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        resp = await super().get_response(path, scope)
+        if resp.status_code == 200:
+            # Vite outputs fingerprinted filenames under /assets, safe to cache long.
+            resp.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
+        return resp
 
 
 def create_unified_app() -> FastAPI:
@@ -26,17 +37,17 @@ def create_unified_app() -> FastAPI:
 
     assets_dir = dist_dir / "assets"
     if assets_dir.exists():
-        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+        app.mount("/assets", CachedStaticFiles(directory=str(assets_dir)), name="frontend-assets")
 
     index_file = dist_dir / "index.html"
     if index_file.exists():
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
-            return FileResponse(index_file)
+            # Do not cache HTML so deployments update immediately.
+            return FileResponse(index_file, headers={"Cache-Control": "no-store"})
 
     return app
 
 
 app = create_unified_app()
-

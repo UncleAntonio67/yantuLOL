@@ -3,9 +3,11 @@
 from datetime import datetime, timezone
 import base64
 import hashlib
+import time
+from collections import OrderedDict
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -22,6 +24,7 @@ from app.schemas.schemas import (
     ViewerMetaResponse,
 )
 from app.utils.qr_png import make_qr_png_bytes
+from app.utils.public_url import public_frontend_base_url
 from app.utils.secure_pdf import watermark_encrypt_pdf_bytes
 from app.utils.watermark import watermark_pdf_bytes
 
@@ -56,6 +59,8 @@ def _load_active_order(order_id: str, pv: int, db: Session) -> Order:
 
 
 def _ensure_primary_attachment(*, product: Product, db: Session) -> None:
+    if not product.source_pdf_path or str(product.source_pdf_path).startswith('__'):
+        return
     has_any = (
         db.scalar(select(func.count()).select_from(ProductAttachment).where(ProductAttachment.product_id == product.id)) or 0
     )
@@ -153,7 +158,7 @@ def viewer_document_default(viewer_token: str, db: Session = Depends(get_db)) ->
         raise HTTPException(status_code=404, detail="Product not found")
     atts = _list_attachments(product=p, db=db)
     if not atts:
-        raise HTTPException(status_code=404, detail="No attachment")
+        raise HTTPException(status_code=404, detail="没有可阅读的文件")
     return viewer_document(viewer_token=viewer_token, attachment_id=atts[0].id, db=db)
 
 
@@ -169,19 +174,29 @@ def viewer_document(viewer_token: str, attachment_id: str, db: Session = Depends
     atts = _list_attachments(product=p, db=db)
     file_path, filename = _find_attachment_path(atts, attachment_id)
 
+    if not file_path or str(file_path).startswith('__'):
+        raise HTTPException(status_code=404, detail="文件尚未上传")
+
     # Update view counters (best-effort)
     o.view_count = int(o.view_count) + 1
     o.last_view_at = datetime.now(timezone.utc)
     db.add(o)
     db.commit()
 
-    watermark_text = f"{o.buyer_id} | {o.id} | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%SZ')}"
+    watermark_text = f"{o.buyer_id} | {o.id}"
     try:
         src, _ = storage.get_bytes(file_path)
     except Exception:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="文件不存在或已被删除")
 
-    out = watermark_pdf_bytes(pdf_bytes=src, watermark_text=watermark_text, font_file=settings.resolved_watermark_font_file())
+    font_file = settings.resolved_watermark_font_file()
+    cache_key = (str(file_path), str(watermark_text), str(font_file or ""))
+    cached = _wm_cache_get(cache_key)
+    if cached is None:
+        out = watermark_pdf_bytes(pdf_bytes=src, watermark_text=watermark_text, font_file=font_file)
+        _wm_cache_put(cache_key, out)
+    else:
+        out = cached
     headers = {
         "Content-Type": "application/pdf",
         "Cache-Control": "no-store",
@@ -217,11 +232,14 @@ def viewer_download(viewer_token: str, attachment_id: str, payload: ViewerDownlo
     atts = _list_attachments(product=p, db=db)
     file_path, filename = _find_attachment_path(atts, attachment_id)
 
+    if not file_path or str(file_path).startswith('__'):
+        raise HTTPException(status_code=404, detail="文件尚未上传")
+
     # Do not persist generated PDFs on server to avoid storage growth.
     try:
         src, _ = storage.get_bytes(file_path)
     except Exception:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="文件不存在或已被删除")
     watermark_text = f"{o.buyer_id} | {o.id}"
     out = watermark_encrypt_pdf_bytes(
         pdf_bytes=src,
@@ -240,14 +258,15 @@ def viewer_download(viewer_token: str, attachment_id: str, payload: ViewerDownlo
 
 
 @router.get("/qrcode/{order_id}.png")
-def viewer_qrcode_png(order_id: str, db: Session = Depends(get_db)) -> Response:
+def viewer_qrcode_png(order_id: str, request: Request, db: Session = Depends(get_db)) -> Response:
     # Public QR code: encodes the viewer URL only (password must still be sent separately).
     settings = get_settings()
     o = db.get(Order, order_id)
     if not o:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    viewer_url = f"{settings.admin_frontend_base_url.rstrip('/')}/view/{order_id}"
+    base = public_frontend_base_url(request) or settings.admin_frontend_base_url.rstrip("/")
+    viewer_url = f"{base}/view/{order_id}"
     png = make_qr_png_bytes(viewer_url, scale=8, border=4)
     headers = {
         "Content-Type": "image/png",
@@ -255,5 +274,13 @@ def viewer_qrcode_png(order_id: str, db: Session = Depends(get_db)) -> Response:
         "X-Content-Type-Options": "nosniff",
     }
     return Response(content=png, media_type="image/png", headers=headers)
+
+
+
+
+
+
+
+
 
 

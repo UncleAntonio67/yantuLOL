@@ -74,7 +74,7 @@ def get_s3_client():
         aws_access_key_id=_getenv("R2_ACCESS_KEY_ID"),
         aws_secret_access_key=_getenv("R2_SECRET_ACCESS_KEY"),
         region_name=_getenv("R2_REGION") or "auto",
-        config=Config(signature_version="s3v4", retries={"max_attempts": 5, "mode": "standard"}),
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, retries={"max_attempts": 5, "mode": "standard"}),
     )
     return s3_client
 
@@ -95,4 +95,5 @@ def download_pdf_stream(*, key: str, bucket: str | None = None) -> io.BytesIO:
     obj = get_s3_client().get_object(Bucket=b, Key=key)
     data = obj["Body"].read()
     return io.BytesIO(data)
+
 
