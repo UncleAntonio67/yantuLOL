@@ -144,8 +144,30 @@ $image = "$Region-docker.pkg.dev/$ProjectId/$ArtifactRepo/yantu:$ImageTag"
 
 Write-Host "[4/5] Building image with Cloud Build: $image"
 # Use an explicit Cloud Build config so we always build with Dockerfile.cloudrun.
-$code = Invoke-Gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions=_IMAGE=$image .
+$buildOut = @()
+$prev = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+  $buildOut = & $Gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions=_IMAGE=$image .
+  $code = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $prev
+}
+
+$buildText = ($buildOut | Out-String)
+$buildId = $null
+if ($buildText -match 'builds/([0-9a-fA-F-]{16,})') {
+  $buildId = $Matches[1]
+}
+if ($buildId) {
+  Write-Host "Cloud Build id: $buildId"
+  Write-Host "Tip: gcloud builds log $buildId --project $ProjectId --stream"
+}
+
 if ($code -ne 0) {
+  if ($buildId) {
+    throw "Cloud Build failed (build id: $buildId). Run: gcloud builds log $buildId --project $ProjectId"
+  }
   throw "Cloud Build failed. Check build logs in Cloud Console."
 }
 
