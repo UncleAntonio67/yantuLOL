@@ -22,6 +22,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# PowerShell 7.2+ can treat non-zero exit codes from native commands as PowerShell errors
+# when $ErrorActionPreference=Stop. We always check $LASTEXITCODE ourselves for gcloud.
+$global:PSNativeCommandUseErrorActionPreference = $false
 
 function Resolve-Gcloud() {
   $cmd = Get-Command gcloud.cmd -ErrorAction SilentlyContinue
@@ -60,7 +63,7 @@ Write-Host "[3/4] Creating or updating Cloud Run job..."
 # Important: In newer PowerShells, stderr from native commands can surface as error records and
 # terminate the script when $ErrorActionPreference=Stop. For the "describe" probe we intentionally
 # swallow failures and branch on $LASTEXITCODE.
-$null = & $gcloud run jobs describe $JobName --region $Region 2>&1
+$null = & $gcloud run jobs describe $JobName --region $Region 1>$null 2>$null
 if ($LASTEXITCODE -eq 0) {
   & $gcloud run jobs update $JobName `
     --region $Region `
