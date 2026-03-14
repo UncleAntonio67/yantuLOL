@@ -43,9 +43,9 @@ $gcloud = Resolve-Gcloud
 function Invoke-GcloudViaCmd([string]$argsLine, [switch]$Quiet) {
   # Using cmd.exe avoids PowerShell converting gcloud stderr/non-zero to NativeCommandError
   # which would terminate the script under $ErrorActionPreference=Stop.
-  $redir = ""
-  if ($Quiet) { $redir = " >NUL 2>NUL" }
-  cmd /c "\"$gcloud\" $argsLine$redir"
+  $cmdLine = ('"' + $gcloud + '" ' + $argsLine)
+  if ($Quiet) { $cmdLine += " >NUL 2>NUL" }
+  cmd /c $cmdLine
   return $LASTEXITCODE
 }
 
