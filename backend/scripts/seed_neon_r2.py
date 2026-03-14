@@ -107,8 +107,16 @@ def main() -> None:
     settings = get_settings()
     print(f"[info] database_url startswith: {settings.database_url.split(':', 1)[0]}")
     print(f"[info] r2_enabled: {storage.r2_enabled()}")
-    if args.require_r2 and not storage.r2_enabled():
-        raise SystemExit("R2 is not enabled. Set R2_ENDPOINT_URL/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET_NAME.")
+    if args.require_r2:
+        # Production seeding should target Neon/Postgres + R2, not the local SQLite dev DB.
+        if settings.database_url.startswith("sqlite"):
+            raise SystemExit(
+                "DATABASE_URL is using sqlite. Set ENV_FILE to your production .env or export DATABASE_URL to Neon."
+            )
+        if not storage.r2_enabled():
+            raise SystemExit(
+                "R2 is not enabled. Set R2_ENDPOINT_URL/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET_NAME."
+            )
 
     pdf_path = Path(args.pdf)
     cover_path = Path(args.cover)
@@ -274,3 +282,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
