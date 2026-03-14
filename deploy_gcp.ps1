@@ -36,6 +36,15 @@ function Read-DotEnv([string]$FilePath) {
   return $vars
 }
 
+function Ensure-Gcloud([string]$Cmd) {
+  $gc = Get-Command $Cmd -ErrorAction SilentlyContinue
+  if (-not $gc) {
+    throw "gcloud not found in PATH. Install Google Cloud SDK and restart your terminal."
+  }
+}
+
+Ensure-Gcloud "gcloud"
+
 $envFile = Join-Path (Get-Location) '.env'
 $vars = Read-DotEnv $envFile
 
@@ -59,29 +68,34 @@ if ([string]::IsNullOrWhiteSpace($ProjectId)) {
   throw "GCP project is not set. Run: gcloud config set project <YOUR_PROJECT_ID> or pass -ProjectId."
 }
 
-Write-Host "[1/4] Project=$ProjectId Region=$Region Service=$ServiceName"
+Write-Host "[1/5] Project=$ProjectId Region=$Region Service=$ServiceName"
 
 gcloud config set project $ProjectId | Out-Null
 
-Write-Host "[2/4] Ensuring Artifact Registry repo exists: $ArtifactRepo ($Region)"
-$repoOk = $true
-try {
-  gcloud artifacts repositories describe $ArtifactRepo --location $Region | Out-Null
-} catch {
-  $repoOk = $false
-}
-if (-not $repoOk) {
-  gcloud artifacts repositories create $ArtifactRepo --repository-format=docker --location $Region | Out-Null
+Write-Host "[2/5] Enabling required APIs (run, cloudbuild, artifactregistry)"
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com | Out-Null
+
+Write-Host "[3/5] Ensuring Artifact Registry repo exists: $ArtifactRepo ($Region)"
+& gcloud artifacts repositories describe $ArtifactRepo --location $Region *> $null
+if ($LASTEXITCODE -ne 0) {
+  & gcloud artifacts repositories create $ArtifactRepo --repository-format=docker --location $Region | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to create Artifact Registry repo: $ArtifactRepo"
+  }
 }
 
 $image = "$Region-docker.pkg.dev/$ProjectId/$ArtifactRepo/yantu:$ImageTag"
 
-Write-Host "[3/4] Building image with Cloud Build: $image"
-gcloud builds submit --tag $image --file Dockerfile.cloudrun .
+Write-Host "[4/5] Building image with Cloud Build: $image"
+# Use an explicit Cloud Build config so we always build with Dockerfile.cloudrun.
+& gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions _IMAGE=$image .
+if ($LASTEXITCODE -ne 0) {
+  throw "Cloud Build failed. Check build logs in Cloud Console."
+}
 
-Write-Host "[4/4] Deploying to Cloud Run"
+Write-Host "[5/5] Deploying to Cloud Run"
 # Do not print secrets.
-gcloud run deploy $ServiceName `
+& gcloud run deploy $ServiceName `
   --image $image `
   --region $Region `
   --platform managed `
@@ -94,6 +108,9 @@ gcloud run deploy $ServiceName `
   --set-env-vars "R2_ACCESS_KEY_ID=$($vars['R2_ACCESS_KEY_ID'])" `
   --set-env-vars "R2_SECRET_ACCESS_KEY=$($vars['R2_SECRET_ACCESS_KEY'])" `
   --set-env-vars "R2_BUCKET_NAME=$($vars['R2_BUCKET_NAME'])"
+if ($LASTEXITCODE -ne 0) {
+  throw "Cloud Run deploy failed."
+}
 
 $backendUrl = (gcloud run services describe $ServiceName --region $Region --format "value(status.url)").Trim()
 Write-Host "Deployed backend URL: $backendUrl"

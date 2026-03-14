@@ -1,0 +1,10 @@
+﻿# Cloud Build config for Cloud Run container build.
+# Usage:
+#   gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions _IMAGE=REGION-docker.pkg.dev/PROJECT/REPO/yantu:TAG .
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'Dockerfile.cloudrun', '-t', '${_IMAGE}', '.']
+
+images:
+  - '${_IMAGE}'
