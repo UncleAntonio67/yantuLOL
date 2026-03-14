@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
@@ -11,6 +11,16 @@ import * as pdfjsLib from "pdfjs-dist";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
 
+function normalizeViewerError(msg: string) {
+  const m = String(msg || "").trim();
+  if (!m) return "加载失败";
+  if (m.includes("文件尚未上传")) return "该商品文件尚未上传，请联系管理员处理。";
+  if (m.includes("文件不存在")) return "文件不存在或已被删除，请联系管理员重新上传。";
+  if (m.includes("Invalid password")) return "密码错误";
+  if (m.includes("Invalid token")) return "访问已过期，请重新验证";
+  return m;
+}
+
 export default function ViewerPage() {
   const { orderId } = useParams();
   const [password, setPassword] = useState("");
@@ -21,6 +31,7 @@ export default function ViewerPage() {
   const [busy, setBusy] = useState(false);
   const [dlBusyId, setDlBusyId] = useState<string | null>(null);
   const [pdfBuf, setPdfBuf] = useState<ArrayBuffer | null>(null);
+  const [rendering, setRendering] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -28,10 +39,16 @@ export default function ViewerPage() {
     return orderId ? `订单 ${orderId} 的专属资料` : "专属资料";
   }, [orderId]);
 
+  const renderScale = useMemo(() => {
+    const w = typeof window === "undefined" ? 1024 : window.innerWidth;
+    return w < 640 ? 1.05 : 1.35;
+  }, []);
+
   useEffect(() => {
     if (!pdfBuf || !containerRef.current) return;
 
     (async () => {
+      setRendering(true);
       const container = containerRef.current!;
       container.innerHTML = "";
 
@@ -41,7 +58,7 @@ export default function ViewerPage() {
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.35 });
+        const viewport = page.getViewport({ scale: renderScale });
         const canvas = document.createElement("canvas");
         canvas.width = Math.floor(viewport.width);
         canvas.height = Math.floor(viewport.height);
@@ -51,10 +68,14 @@ export default function ViewerPage() {
         await page.render({ canvasContext: ctx, viewport }).promise;
         container.appendChild(canvas);
       }
-    })().catch((e) => {
-      setErr(String(e?.message || e));
-    });
-  }, [pdfBuf]);
+    })()
+      .catch((e) => {
+        setErr(normalizeViewerError(String(e?.message || e)));
+      })
+      .finally(() => {
+        setRendering(false);
+      });
+  }, [pdfBuf, renderScale]);
 
   // Best-effort: block common download/print shortcuts, and make printing blank.
   useEffect(() => {
@@ -100,7 +121,7 @@ export default function ViewerPage() {
       const buf = await fetchViewerPdf(viewerToken, attId || undefined);
       setPdfBuf(buf);
     } catch (ex: any) {
-      setErr(ex?.message || "刷新失败");
+      setErr(normalizeViewerError(ex?.message || "刷新失败"));
     }
   }
 
@@ -117,13 +138,13 @@ export default function ViewerPage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = filename.endsWith(".pdf") ? filename.replace(/\\.pdf$/i, "_download.pdf") : `${filename}_download.pdf`;
+      a.download = filename.endsWith(".pdf") ? filename.replace(/\.pdf$/i, "_download.pdf") : `${filename}_download.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     } catch (ex: any) {
-      setErr(ex?.message || "下载失败");
+      setErr(normalizeViewerError(ex?.message || "下载失败"));
     } finally {
       setDlBusyId(null);
     }
@@ -144,7 +165,7 @@ export default function ViewerPage() {
 
         {!viewerToken ? (
           <div className="max-w-md">
-            <Card title="验证访问" subtitle="输入密码后开始在线阅读（退款后会立刻失效）">
+            <Card title="验证访问" subtitle="输入密码后开始在线阅读（退款后会立即失效）">
               <form
                 className="space-y-4"
                 onSubmit={async (e) => {
@@ -162,7 +183,7 @@ export default function ViewerPage() {
                     const buf = await fetchViewerPdf(res.viewer_token, first || undefined);
                     setPdfBuf(buf);
                   } catch (ex: any) {
-                    setErr(ex?.message || "验证失败");
+                    setErr(normalizeViewerError(ex?.message || "验证失败"));
                   } finally {
                     setBusy(false);
                   }
@@ -174,7 +195,13 @@ export default function ViewerPage() {
                 </div>
                 <div>
                   <Label>访问密码</Label>
-                  <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="请输入管理员提供的密码" required />
+                  <Input
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="请输入管理员提供的密码"
+                    required
+                    autoComplete="off"
+                  />
                 </div>
                 {err && <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{err}</div>}
                 <Button type="submit" disabled={busy} className="w-full">
@@ -186,11 +213,13 @@ export default function ViewerPage() {
         ) : (
           <div className="space-y-4">
             {err && <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-800">{err}</div>}
+
             {meta && (
               <div className="glass rounded-2xl p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="text-xs text-gray-600">
-                    {meta.product_name} | {meta.is_confirmed ? "已确认收货，可下载" : "未确认收货，仅可在线查看"}
+                    {meta.product_name} |{" "}
+                    {meta.is_confirmed ? "已确认收货，可下载" : "未确认收货，仅可在线查看"}
                   </div>
                   <Button tone="ghost" type="button" onClick={() => void refreshViewer()}>
                     刷新
@@ -216,7 +245,7 @@ export default function ViewerPage() {
                             const buf = await fetchViewerPdf(viewerToken, a.id);
                             setPdfBuf(buf);
                           } catch (ex: any) {
-                            setErr(ex?.message || "加载失败");
+                            setErr(normalizeViewerError(ex?.message || "加载失败"));
                           }
                         }}
                         type="button"
@@ -256,7 +285,10 @@ export default function ViewerPage() {
             )}
 
             <div className="glass rounded-2xl p-4" onContextMenu={(e) => e.preventDefault()} tabIndex={0}>
-              <div className="mb-3 text-xs text-gray-600">已验证。若退款或密码重置，页面将无法继续加载。</div>
+              <div className="mb-3 text-xs text-gray-600">
+                已验证。若退款或密码重置，页面将无法继续加载。
+              </div>
+              {rendering && <div className="mb-3 text-xs text-gray-600">渲染中，请稍候...</div>}
               <div ref={containerRef} className="space-y-4 select-none" />
             </div>
           </div>
@@ -265,4 +297,3 @@ export default function ViewerPage() {
     </div>
   );
 }
-

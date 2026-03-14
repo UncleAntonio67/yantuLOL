@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Pagination from "../../components/Pagination";
@@ -105,14 +105,14 @@ export default function ProductsPage() {
         ) : (
           <div className="space-y-3">
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full min-w-[920px] table-fixed text-left text-sm">
+              <table className="w-full table-fixed text-left text-sm">
                 <colgroup>
-                  <col className="w-[84px]" />
-                  <col className="w-[360px]" />
+                  <col className="w-[76px]" />
+                  <col className="w-[320px]" />
+                  <col className="w-[76px]" />
+                  <col className="w-[100px]" />
+                  <col className="w-[100px]" />
                   <col className="w-[80px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[110px]" />
-                  <col className="w-[90px]" />
                   <col className="w-[110px]" />
                 </colgroup>
                 <thead className="text-xs text-gray-500">

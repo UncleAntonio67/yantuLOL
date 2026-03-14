@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import { Input, Label, Select } from "../../components/Field";
@@ -34,9 +34,9 @@ export default function TeamPage() {
       <div className="flex items-end justify-between">
         <div>
           <div className="text-2xl font-black">团队管理</div>
-          <div className="mt-1 text-sm text-gray-600">仅超级管理员可新增普通管理员账号</div>
+          <div className="mt-1 text-sm text-gray-600">仅超级管理员可新增管理员账号</div>
         </div>
-        {canCreate ? <Button onClick={() => setModalOpen(true)}>添加管理员</Button> : <div />}
+        {canCreate ? <Button onClick={() => setModalOpen(true)}>新增管理员</Button> : <div />}
       </div>
 
       {err && <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-800">{err}</div>}
@@ -46,7 +46,7 @@ export default function TeamPage() {
           {items.map((m) => (
             <div key={m.id} className="rounded-2xl border border-gray-100 bg-white/80 p-5">
               <div className="flex items-center justify-between">
-                <div className="font-black text-gray-900">{m.nickname}</div>
+                <div className="font-black text-gray-900 truncate">{m.nickname}</div>
                 <div className={m.role === "super_admin" ? "text-xs font-bold text-brand-700" : "text-xs text-gray-600"}>
                   {m.role === "super_admin" ? "超级管理员" : "管理员"}
                 </div>
@@ -105,7 +105,7 @@ export default function TeamPage() {
                 </div>
                 <div>
                   <Label>昵称</Label>
-                  <Input name="nickname" required placeholder="例如 管理员1号" />
+                  <Input name="nickname" required placeholder="例如 运营1号" />
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -137,4 +137,3 @@ export default function TeamPage() {
     </div>
   );
 }
-

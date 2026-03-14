@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/Card";
 import { apiJson } from "../../lib/api";
 import type { DashboardAnalytics, DashboardStats } from "../../lib/types";
@@ -88,14 +88,14 @@ export default function DashboardPage() {
       <div className="flex items-end justify-between">
         <div>
           <div className="text-2xl font-black">数据总览</div>
-          <div className="mt-1 text-sm text-gray-600">方案B：在线阅读链接 + 动态水印 + 退款即时吊销</div>
+          <div className="mt-1 text-sm text-gray-600">方案 B：在线阅读链接 + 动态水印 + 退款即时吊销</div>
         </div>
       </div>
 
       {err && <div className="glass rounded-2xl px-5 py-4 text-sm text-brand-800 border border-brand-200 bg-brand-50">{err}</div>}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Stat label="今日确认营收" value={stats ? `￥${stats.today_revenue}` : "-"} hint="仅确认收货后计入" />
+        <Stat label="今日确认营收" value={stats ? `¥${stats.today_revenue}` : "-"} hint="仅确认收货后计入" />
         <Stat label="今日确认单数" value={stats ? String(stats.today_orders) : "-"} hint="发货后需确认收货" />
         <Stat label="在售商品数" value={stats ? String(stats.active_products) : "-"} />
         <Stat label="累计退款单数" value={stats ? String(stats.total_refunds) : "-"} />
@@ -116,7 +116,7 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card title="收入排行" subtitle="按已确认订单金额汇总（退款不计入）">
+        <Card title="单品收入排行" subtitle="按已确认订单金额汇总（退款不计入）">
           {!analytics ? (
             <div className="text-sm text-gray-600">加载中...</div>
           ) : analytics.revenue_ranking.length === 0 ? (
@@ -129,7 +129,7 @@ export default function DashboardPage() {
                   <BarRow
                     key={x.product_id}
                     label={x.product_name}
-                    valueText={`￥${x.revenue}`}
+                    valueText={`¥${x.revenue}`}
                     ratio={maxRevenue ? v / maxRevenue : 0}
                     tone="green"
                   />
@@ -162,7 +162,7 @@ export default function DashboardPage() {
 
       <Card title="使用建议" subtitle="降低传播风险的常用操作">
         <div className="text-sm text-gray-700 leading-6">
-          发货成功后，建议先在后台预览通知文案或邮件正文，再发送给买家。发现泄露风险时，使用“退款吊销”或“重置密码”可立即阻断访问。
+          发货成功后，建议先在后台预览通知文案或邮件正文，再发送给买家。发现泄露风险时，使用“退款吊销”或“重置密码”可立刻阻断访问。
         </div>
       </Card>
     </div>

@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import Button from "./Button";
 
 export default function Pagination(props: {
@@ -13,9 +13,17 @@ export default function Pagination(props: {
   const safePage = Math.min(Math.max(1, page), totalPages);
 
   return (
-    <div className={["flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3", props.className].filter(Boolean).join(" ")}>
+    <div
+      className={[
+        "flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3",
+        props.className
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="text-xs text-gray-600">
-        第 <span className="font-semibold text-gray-900">{safePage}</span> / <span className="font-semibold text-gray-900">{totalPages}</span> 页
+        第 <span className="font-semibold text-gray-900">{safePage}</span> /{" "}
+        <span className="font-semibold text-gray-900">{totalPages}</span> 页
         <span className="ml-2">共 {total} 条</span>
       </div>
       <div className="flex gap-2">
@@ -29,4 +37,3 @@ export default function Pagination(props: {
     </div>
   );
 }
-

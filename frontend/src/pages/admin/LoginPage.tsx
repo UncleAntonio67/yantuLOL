@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
@@ -49,19 +49,25 @@ export default function LoginPage() {
           >
             <div>
               <Label>用户名</Label>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="例如 boss" />
+              <Input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="例如 boss" autoComplete="username" />
             </div>
             <div>
               <Label>密码</Label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="请输入密码" />
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="请输入密码"
+                autoComplete="current-password"
+              />
             </div>
             {err && <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{err}</div>}
             <Button type="submit" disabled={busy} className="w-full">
               {busy ? "登录中..." : "登录"}
             </Button>
 
-            <div className="text-xs text-gray-600">
-              默认开发账号可用你之前创建的 `test_admin / ChangeMe123!`。
+            <div className="text-xs text-gray-600 leading-5">
+              开发环境默认账号示例: <code className="rounded bg-white/70 px-1 py-0.5">test_admin / ChangeMe123!</code>
             </div>
           </form>
         </Card>
