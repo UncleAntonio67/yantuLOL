@@ -8,6 +8,14 @@
 
 $ErrorActionPreference = "Stop"
 
+# PowerShell 7+ may treat non-zero exit codes from native commands as terminating
+# errors when $ErrorActionPreference is "Stop". We intentionally probe for
+# existence (e.g. Artifact Registry repo) via commands that may fail, so disable
+# that behavior for this script.
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+  $PSNativeCommandUseErrorActionPreference = $false
+}
+
 function Read-DotEnv([string]$FilePath) {
   $vars = @{}
   if (-not (Test-Path $FilePath)) {
@@ -76,7 +84,7 @@ Write-Host "[2/5] Enabling required APIs (run, cloudbuild, artifactregistry)"
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com | Out-Null
 
 Write-Host "[3/5] Ensuring Artifact Registry repo exists: $ArtifactRepo ($Region)"
-& gcloud artifacts repositories describe $ArtifactRepo --location $Region *> $null
+$null = & gcloud artifacts repositories describe $ArtifactRepo --location $Region 2>$null
 if ($LASTEXITCODE -ne 0) {
   & gcloud artifacts repositories create $ArtifactRepo --repository-format=docker --location $Region | Out-Null
   if ($LASTEXITCODE -ne 0) {
