@@ -144,7 +144,7 @@ $image = "$Region-docker.pkg.dev/$ProjectId/$ArtifactRepo/yantu:$ImageTag"
 
 Write-Host "[4/5] Building image with Cloud Build: $image"
 # Use an explicit Cloud Build config so we always build with Dockerfile.cloudrun.
-$code = Invoke-Gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions _IMAGE=$image .
+$code = Invoke-Gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions=_IMAGE=$image .
 if ($code -ne 0) {
   throw "Cloud Build failed. Check build logs in Cloud Console."
 }
