@@ -49,6 +49,14 @@ function Invoke-GcloudViaCmd([string]$argsLine, [switch]$Quiet) {
   return $LASTEXITCODE
 }
 
+$global:LAST_GCLOUD_OUTPUT = @()
+function Invoke-GcloudCapture([string]$argsLine) {
+  $cmdLine = ('"' + $gcloud + '" ' + $argsLine)
+  $out = cmd /c $cmdLine 2>&1
+  $global:LAST_GCLOUD_OUTPUT = @($out)
+  return $out
+}
+
 Write-Host "[1/4] Using project=$ProjectId region=$Region job=$JobName"
 & $gcloud config set project $ProjectId | Out-Null
 Ensure-Ok $LASTEXITCODE "Failed to set gcloud project"
@@ -82,7 +90,33 @@ if ($LASTEXITCODE -eq 0) {
 
 Write-Host "[4/4] Executing job (waiting for completion)..."
 $exit = Invoke-GcloudViaCmd ("run jobs execute {0} --region {1} --wait" -f $JobName,$Region)
-Ensure-Ok $exit "Seed job execution failed"
+if ($exit -ne 0) {
+  Write-Host ""
+  Write-Host "Seed job failed. Fetching latest execution details and logs..."
+  $execName = (Invoke-GcloudCapture ("run jobs executions list --job {0} --region {1} --limit 1 --sort-by=~createTime --format=value(name)" -f $JobName,$Region) | Select-Object -First 1).Trim()
+  if ($execName) {
+    Write-Host ""
+    Write-Host ("Execution: {0}" -f $execName)
+    Write-Host ""
+    Invoke-GcloudCapture ("run jobs executions describe {0} --region {1}" -f $execName,$Region) | Write-Host
+    Write-Host ""
+    Write-Host "[logs] (last 200 lines)"
+    $logs = Invoke-GcloudCapture ("run jobs executions logs read {0} --region {1} --limit 200" -f $execName,$Region)
+    if ($LASTEXITCODE -eq 0) {
+      $logs | Write-Host
+    } else {
+      Write-Host "Failed to read logs via gcloud. Open Cloud Console execution details:"
+      Write-Host ("https://console.cloud.google.com/run/jobs/executions/details/{0}/{1}?project={2}" -f $Region,$execName,$ProjectId)
+    }
+  } else {
+    Write-Host "Unable to resolve latest execution name. List executions:"
+    Invoke-GcloudCapture ("run jobs executions list --job {0} --region {1} --limit 5" -f $JobName,$Region) | Write-Host
+  }
+  throw "Seed job execution failed"
+}
+
+Write-Host ""
+Write-Host "Seed job finished. If this was first-time bootstrap, remove BOOTSTRAP_* env vars from the Cloud Run service after you can log in."
 
 Write-Host ""
 Write-Host "Seed job finished. If this was first-time bootstrap, remove BOOTSTRAP_* env vars from the Cloud Run service after you can log in."
