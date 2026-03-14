@@ -148,7 +148,8 @@ $buildOut = @()
 $prev = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
 try {
-  $buildOut = & $Gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions=_IMAGE=$image .
+  # Capture stderr too because gcloud prints the build URL/id there.
+  $buildOut = & $Gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions=_IMAGE=$image . 2>&1
   $code = $LASTEXITCODE
 } finally {
   $ErrorActionPreference = $prev
