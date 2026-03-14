@@ -57,8 +57,10 @@ if ($Purge) { $argsList += "--purge" }
 $argsCsv = ($argsList -join ",")
 
 Write-Host "[3/4] Creating or updating Cloud Run job..."
-# On Windows, gcloud.ps1 can emit PowerShell errors; use gcloud.cmd if available and silence output.
-& $gcloud run jobs describe $JobName --region $Region 1>$null 2>$null
+# Important: In newer PowerShells, stderr from native commands can surface as error records and
+# terminate the script when $ErrorActionPreference=Stop. For the "describe" probe we intentionally
+# swallow failures and branch on $LASTEXITCODE.
+$null = & $gcloud run jobs describe $JobName --region $Region 2>&1
 if ($LASTEXITCODE -eq 0) {
   & $gcloud run jobs update $JobName `
     --region $Region `
