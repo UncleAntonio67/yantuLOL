@@ -42,7 +42,7 @@ fi
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/yantu:${IMAGE_TAG}"
 
 echo "[2/3] Building container image with Cloud Build: ${IMAGE}"
-gcloud builds submit --tag "${IMAGE}" --file Dockerfile.cloudrun .
+gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions _IMAGE=${IMAGE} .
 
 echo "[3/3] Deploying to Cloud Run: ${SERVICE_NAME} (${REGION})"
 gcloud run deploy "${SERVICE_NAME}" \
@@ -61,5 +61,6 @@ gcloud run deploy "${SERVICE_NAME}" \
 
 BACKEND_URL="$(gcloud run services describe "${SERVICE_NAME}" --region "${REGION}" --format='value(status.url)')"
 echo "Deployed backend URL: ${BACKEND_URL}"
+
 
 
