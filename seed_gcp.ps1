@@ -52,7 +52,8 @@ function Invoke-GcloudViaCmd([string]$argsLine, [switch]$Quiet) {
 $global:LAST_GCLOUD_OUTPUT = @()
 function Invoke-GcloudCapture([string]$argsLine) {
   $cmdLine = ('"' + $gcloud + '" ' + $argsLine)
-  $out = cmd /c $cmdLine 2>&1
+  # Redirect within cmd.exe so PowerShell doesn't turn stderr into error records.
+  $out = cmd /c ($cmdLine + " 2>&1")
   $global:LAST_GCLOUD_OUTPUT = @($out)
   return $out
 }
@@ -105,8 +106,21 @@ if ($exit -ne 0) {
     if ($LASTEXITCODE -eq 0) {
       $logs | Write-Host
     } else {
-      Write-Host "Failed to read logs via gcloud. Open Cloud Console execution details:"
-      Write-Host ("https://console.cloud.google.com/run/jobs/executions/details/{0}/{1}?project={2}" -f $Region,$execName,$ProjectId)
+      $asText = ($logs -join "`n")
+      if ($asText -match "Invalid choice: 'logs'") {
+        Write-Host "gcloud does not support 'run jobs executions logs'. Falling back to 'gcloud logging read'..."
+        $filter = "resource.type=""cloud_run_job"" AND resource.labels.job_name=""$JobName"" AND resource.labels.location=""$Region"" AND labels.""run.googleapis.com/execution_name""=""$execName"""
+        $logOut = Invoke-GcloudCapture ("logging read ""{0}"" --project {1} --limit 200 --format=""table(timestamp,severity,textPayload)""" -f $filter,$ProjectId)
+        if ($LASTEXITCODE -eq 0) {
+          $logOut | Write-Host
+        } else {
+          Write-Host "Failed to read logs via Cloud Logging. Open Cloud Console execution details:"
+          Write-Host ("https://console.cloud.google.com/run/jobs/executions/details/{0}/{1}?project={2}" -f $Region,$execName,$ProjectId)
+        }
+      } else {
+        Write-Host "Failed to read logs via gcloud. Open Cloud Console execution details:"
+        Write-Host ("https://console.cloud.google.com/run/jobs/executions/details/{0}/{1}?project={2}" -f $Region,$execName,$ProjectId)
+      }
     }
   } else {
     Write-Host "Unable to resolve latest execution name. List executions:"
@@ -114,9 +128,6 @@ if ($exit -ne 0) {
   }
   throw "Seed job execution failed"
 }
-
-Write-Host ""
-Write-Host "Seed job finished. If this was first-time bootstrap, remove BOOTSTRAP_* env vars from the Cloud Run service after you can log in."
 
 Write-Host ""
 Write-Host "Seed job finished. If this was first-time bootstrap, remove BOOTSTRAP_* env vars from the Cloud Run service after you can log in."
