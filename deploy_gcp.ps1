@@ -41,14 +41,11 @@ function Read-DotEnv([string]$FilePath) {
 }
 
 function Resolve-GcloudCommand() {
-  # Prefer gcloud.cmd over gcloud.ps1 to avoid PowerShell-native error behavior.
+  # Prefer gcloud.ps1 (PowerShell wrapper) when available.
+  # Using gcloud.cmd can break args containing cmd metacharacters like '&' in DATABASE_URL.
   $cmd = Get-Command gcloud -ErrorAction SilentlyContinue
   if (-not $cmd) { return $null }
-  if ($cmd.Source -and $cmd.Source.ToLower().EndsWith("gcloud.ps1")) {
-    $dir = Split-Path -Parent $cmd.Source
-    $gcCmd = Join-Path $dir "gcloud.cmd"
-    if (Test-Path $gcCmd) { return $gcCmd }
-  }
+  if ($cmd.Source) { return $cmd.Source }
   return "gcloud"
 }
 
