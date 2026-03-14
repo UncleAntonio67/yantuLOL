@@ -8,13 +8,9 @@
 
 $ErrorActionPreference = "Stop"
 
-# PowerShell 7+ may treat non-zero exit codes from native commands as terminating
-# errors when $ErrorActionPreference is "Stop". We intentionally probe for
-# existence (e.g. Artifact Registry repo) via commands that may fail, so disable
-# that behavior for this script.
-if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
-  $PSNativeCommandUseErrorActionPreference = $false
-}
+# PowerShell 7+ may treat native stderr output as error records; keep gcloud failures
+# non-terminating so we can branch on $LASTEXITCODE explicitly.
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
 
 function Read-DotEnv([string]$FilePath) {
   $vars = @{}
@@ -44,14 +40,66 @@ function Read-DotEnv([string]$FilePath) {
   return $vars
 }
 
-function Ensure-Gcloud([string]$Cmd) {
-  $gc = Get-Command $Cmd -ErrorAction SilentlyContinue
-  if (-not $gc) {
-    throw "gcloud not found in PATH. Install Google Cloud SDK and restart your terminal."
+function Resolve-GcloudCommand() {
+  # Prefer gcloud.cmd over gcloud.ps1 to avoid PowerShell-native error behavior.
+  $cmd = Get-Command gcloud -ErrorAction SilentlyContinue
+  if (-not $cmd) { return $null }
+  if ($cmd.Source -and $cmd.Source.ToLower().EndsWith("gcloud.ps1")) {
+    $dir = Split-Path -Parent $cmd.Source
+    $gcCmd = Join-Path $dir "gcloud.cmd"
+    if (Test-Path $gcCmd) { return $gcCmd }
+  }
+  return "gcloud"
+}
+
+$Gcloud = Resolve-GcloudCommand
+if (-not $Gcloud) { throw "gcloud not found in PATH. Install Google Cloud SDK and restart your terminal." }
+
+function Invoke-Gcloud {
+  param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Args
+  )
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & $Gcloud @Args
+    return $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $prev
   }
 }
 
-Ensure-Gcloud "gcloud"
+function Invoke-GcloudQuiet {
+  param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Args
+  )
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    & $Gcloud @Args 2>$null | Out-Null
+    return $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+}
+
+function Invoke-GcloudCapture {
+  param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Args
+  )
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $out = & $Gcloud @Args 2>$null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    return ($out | Out-String).Trim()
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+}
 
 $envFile = Join-Path (Get-Location) '.env'
 $vars = Read-DotEnv $envFile
@@ -70,7 +118,7 @@ foreach ($k in $required) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ProjectId)) {
-  $ProjectId = (gcloud config get-value project 2>$null).Trim()
+  $ProjectId = (Invoke-GcloudCapture config get-value project)
 }
 if ([string]::IsNullOrWhiteSpace($ProjectId)) {
   throw "GCP project is not set. Run: gcloud config set project <YOUR_PROJECT_ID> or pass -ProjectId."
@@ -78,16 +126,16 @@ if ([string]::IsNullOrWhiteSpace($ProjectId)) {
 
 Write-Host "[1/5] Project=$ProjectId Region=$Region Service=$ServiceName"
 
-gcloud config set project $ProjectId | Out-Null
+$null = Invoke-Gcloud config set project $ProjectId
 
 Write-Host "[2/5] Enabling required APIs (run, cloudbuild, artifactregistry)"
-gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com | Out-Null
+$null = Invoke-Gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
 
 Write-Host "[3/5] Ensuring Artifact Registry repo exists: $ArtifactRepo ($Region)"
-$null = & gcloud artifacts repositories describe $ArtifactRepo --location $Region 2>$null
-if ($LASTEXITCODE -ne 0) {
-  & gcloud artifacts repositories create $ArtifactRepo --repository-format=docker --location $Region | Out-Null
-  if ($LASTEXITCODE -ne 0) {
+$code = Invoke-GcloudQuiet artifacts repositories describe $ArtifactRepo --location $Region
+if ($code -ne 0) {
+  $code2 = Invoke-Gcloud artifacts repositories create $ArtifactRepo --repository-format=docker --location $Region
+  if ($code2 -ne 0) {
     throw "Failed to create Artifact Registry repo: $ArtifactRepo"
   }
 }
@@ -96,14 +144,14 @@ $image = "$Region-docker.pkg.dev/$ProjectId/$ArtifactRepo/yantu:$ImageTag"
 
 Write-Host "[4/5] Building image with Cloud Build: $image"
 # Use an explicit Cloud Build config so we always build with Dockerfile.cloudrun.
-& gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions _IMAGE=$image .
-if ($LASTEXITCODE -ne 0) {
+$code = Invoke-Gcloud builds submit --config cloudbuild.cloudrun.yaml --substitutions _IMAGE=$image .
+if ($code -ne 0) {
   throw "Cloud Build failed. Check build logs in Cloud Console."
 }
 
 Write-Host "[5/5] Deploying to Cloud Run"
 # Do not print secrets.
-& gcloud run deploy $ServiceName `
+$code = Invoke-Gcloud run deploy $ServiceName `
   --image $image `
   --region $Region `
   --platform managed `
@@ -116,9 +164,11 @@ Write-Host "[5/5] Deploying to Cloud Run"
   --set-env-vars "R2_ACCESS_KEY_ID=$($vars['R2_ACCESS_KEY_ID'])" `
   --set-env-vars "R2_SECRET_ACCESS_KEY=$($vars['R2_SECRET_ACCESS_KEY'])" `
   --set-env-vars "R2_BUCKET_NAME=$($vars['R2_BUCKET_NAME'])"
-if ($LASTEXITCODE -ne 0) {
+if ($code -ne 0) {
   throw "Cloud Run deploy failed."
 }
 
-$backendUrl = (gcloud run services describe $ServiceName --region $Region --format "value(status.url)").Trim()
-Write-Host "Deployed backend URL: $backendUrl"
+$backendUrl = Invoke-GcloudCapture run services describe $ServiceName --region $Region --format "value(status.url)"
+if ($backendUrl) {
+  Write-Host "Deployed backend URL: $backendUrl"
+}
