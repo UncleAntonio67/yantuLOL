@@ -30,6 +30,45 @@ from app.utils.watermark import watermark_pdf_bytes
 
 
 router = APIRouter()
+# Watermarked PDF cache (in-memory, per instance).
+# We do NOT persist watermarked/encrypted outputs to disk or object storage.
+# This cache exists solely to reduce repeated watermark CPU cost during short time windows.
+_WM_CACHE_TTL_S = 300.0
+_WM_CACHE_MAX_ITEMS = 12
+_wm_cache: "OrderedDict[tuple[str, str, str], tuple[float, bytes]]" = OrderedDict()
+
+
+def _wm_cache_get(key: tuple[str, str, str]) -> bytes | None:
+    now = time.time()
+    item = _wm_cache.get(key)
+    if not item:
+        return None
+    ts, data = item
+    if (now - ts) > _WM_CACHE_TTL_S:
+        try:
+            del _wm_cache[key]
+        except Exception:
+            pass
+        return None
+    try:
+        _wm_cache.move_to_end(key)
+    except Exception:
+        pass
+    return data
+
+
+def _wm_cache_put(key: tuple[str, str, str], data: bytes) -> None:
+    now = time.time()
+    _wm_cache[key] = (now, data)
+    try:
+        _wm_cache.move_to_end(key)
+    except Exception:
+        pass
+    while len(_wm_cache) > _WM_CACHE_MAX_ITEMS:
+        try:
+            _wm_cache.popitem(last=False)
+        except Exception:
+            break
 
 
 def _decode_viewer_token(viewer_token: str) -> tuple[str, int]:

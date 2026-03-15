@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
+import Segmented from "../../components/Segmented";
 import Pagination from "../../components/Pagination";
 import { Input, Label, Select } from "../../components/Field";
 import { apiJson, apiJsonCached } from "../../lib/api";
@@ -75,6 +76,8 @@ export default function OrdersPage() {
   const [createdFromQuery, setCreatedFromQuery] = useState("");
   const [createdToQuery, setCreatedToQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [sortBy, setSortBy] = useState<"created_at" | "unit_price">("created_at");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
@@ -431,7 +434,142 @@ export default function OrdersPage() {
 
   const recordsPanel = (
     <Card title="发货记录 & 售后" subtitle="支持按买家、商品、操作人、日期筛选">
-      <div className="grid grid-cols-1 md:grid-cols-8 gap-3 w-full">
+      <div className="md:hidden flex items-center justify-between gap-2">
+        <div className="text-xs text-gray-600">共 {total} 条</div>
+        <Button tone="ghost" size="sm" type="button" onClick={() => setFiltersOpen(true)}>
+          筛选/排序
+        </Button>
+      </div>
+
+      {filtersOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="glass w-full max-w-lg rounded-2xl shadow-soft overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="font-black">筛选与排序</div>
+              <button className="text-sm text-gray-600 hover:text-brand-700" type="button" onClick={() => setFiltersOpen(false)}>
+                关闭
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <Label>买家ID</Label>
+                <Input value={buyerIdInput} onChange={(e) => setBuyerIdInput(e.target.value)} placeholder="包含匹配" />
+              </div>
+              <div>
+                <Label>商品</Label>
+                <Select value={productFilter} onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}>
+                  <option value="">全部</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <Label>操作人</Label>
+                <Select value={operatorFilter} onChange={(e) => { setOperatorFilter(e.target.value); setPage(1); }}>
+                  <option value="">全部</option>
+                  {operators.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.nickname}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>开始日期</Label>
+                  <Input type="date" value={createdFromInput} onChange={(e) => setCreatedFromInput(e.target.value)} />
+                </div>
+                <div>
+                  <Label>结束日期</Label>
+                  <Input type="date" value={createdToInput} onChange={(e) => setCreatedToInput(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <Label>状态</Label>
+                <Segmented
+                  size="sm"
+                  value={(statusFilter || "all") as any}
+                  options={[
+                    { value: "all", label: "全部" },
+                    { value: "active", label: "生效" },
+                    { value: "refunded", label: "退款" }
+                  ]}
+                  onChange={(v: any) => {
+                    setStatusFilter(v === "all" ? "" : v);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div>
+                <Label>排序</Label>
+                <Segmented
+                  size="sm"
+                  value={sortBy}
+                  options={[
+                    { value: "created_at", label: "时间" },
+                    { value: "unit_price", label: "金额" }
+                  ]}
+                  onChange={(v: any) => {
+                    setSortBy(v as any);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div>
+                <Label>方向</Label>
+                <Segmented
+                  size="sm"
+                  value={sortDir}
+                  options={[
+                    { value: "desc", label: "降序" },
+                    { value: "asc", label: "升序" }
+                  ]}
+                  onChange={(v: any) => {
+                    setSortDir(v as any);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  className="w-full"
+                  type="button"
+                  onClick={() => {
+                    setBuyerIdQuery(buyerIdInput);
+                    setCreatedFromQuery(createdFromInput);
+                    setCreatedToQuery(createdToInput);
+                    setPage(1);
+                    setFiltersOpen(false);
+                  }}
+                >
+                  应用
+                </Button>
+                <Button
+                  tone="ghost"
+                  className="w-full"
+                  type="button"
+                  onClick={() => {
+                    setBuyerIdInput("");
+                    setProductFilter("");
+                    setOperatorFilter("");
+                    setCreatedFromInput("");
+                    setCreatedToInput("");
+                    setStatusFilter("");
+                    setSortBy("created_at");
+                    setSortDir("desc");
+                  }}
+                >
+                  清空
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="hidden md:grid grid-cols-1 md:grid-cols-8 gap-3 w-full">
         <div>
           <Label>买家ID</Label>
           <Input value={buyerIdInput} onChange={(e) => setBuyerIdInput(e.target.value)} placeholder="包含匹配" />
@@ -478,27 +616,42 @@ export default function OrdersPage() {
         </div>
         <div>
           <Label>状态</Label>
-          <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}>
-            <option value="">全部</option>
-            <option value="active">生效中</option>
-            <option value="refunded">已退款</option>
-          </Select>
+          <Segmented
+            size="sm"
+            value={(statusFilter || "all") as any}
+            options={[
+              { value: "all", label: "全部" },
+              { value: "active", label: "生效" },
+              { value: "refunded", label: "退款" }
+            ]}
+            onChange={(v: any) => { setStatusFilter(v === "all" ? "" : v); setPage(1); }}
+          />
         </div>
-                <div>
+        <div>
           <Label>排序</Label>
-          <Select value={sortBy} onChange={(e) => { setSortBy(e.target.value as any); setPage(1); }}>
-            <option value="created_at">创建时间</option>
-            <option value="unit_price">金额</option>
-          </Select>
+          <Segmented
+            size="sm"
+            value={sortBy}
+            options={[
+              { value: "created_at", label: "时间" },
+              { value: "unit_price", label: "金额" }
+            ]}
+            onChange={(v: any) => { setSortBy(v as any); setPage(1); }}
+          />
         </div>
         <div>
           <Label>方向</Label>
-          <Select value={sortDir} onChange={(e) => { setSortDir(e.target.value as any); setPage(1); }}>
-            <option value="desc">降序</option>
-            <option value="asc">升序</option>
-          </Select>
+          <Segmented
+            size="sm"
+            value={sortDir}
+            options={[
+              { value: "desc", label: "降序" },
+              { value: "asc", label: "升序" }
+            ]}
+            onChange={(v: any) => { setSortDir(v as any); setPage(1); }}
+          />
         </div>
-<div className="md:col-span-5 flex items-end">
+        <div className="md:col-span-5 flex items-end">
           <div className="text-[11px] text-gray-600 leading-5">
             系统会以加密方式保存密码，便于找回与复制；如遇旧订单无密码，可使用“重置密码”，新密码会自动复制且旧密码立即失效。
           </div>

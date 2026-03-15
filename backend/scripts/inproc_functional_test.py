@@ -88,6 +88,14 @@ def main() -> int:
     meta = r.json()
     assert meta["can_download"] is True
     att_id = meta["attachments"][0]["id"]
+
+    r = c.get(f"/api/viewer/document/{vt}/{att_id}")
+    _assert_ok(r, "viewer document failed")
+    assert r.content.startswith(b"%PDF-"), "document should be a pdf"
+    doc2 = fitz.open(stream=r.content, filetype="pdf")
+    assert doc2.page_count >= 1
+    doc2.close()
+    print("[ok] document watermarked")
     print("[ok] meta can_download")
 
     r = c.post(f"/api/viewer/download/{vt}/{att_id}", json={"password": access_pw})
@@ -102,7 +110,7 @@ def main() -> int:
     print("[ok] download encrypted + password stable")
 
     now = datetime.now(timezone.utc)
-    created_from = (now + timedelta(days=365)).isoformat()
+    created_from = (now + timedelta(days=365)).date().isoformat()
     r = c.get(
         "/api/admin/orders/paged",
         params={"created_from": created_from, "page": 1, "page_size": 10},

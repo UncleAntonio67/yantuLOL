@@ -94,6 +94,12 @@ def _generate_order_id() -> str:
 def _generate_password() -> str:
     # Stronger than 6 digits; still human typable.
     return secrets.token_urlsafe(9).replace("-", "").replace("_", "")[:12]
+def _encrypt_password_optional(pw: str) -> str | None:
+    """Best-effort encrypt for password retrieval. If crypto deps are missing, skip."""
+    try:
+        return password_vault.encrypt_password(pw)
+    except Exception:
+        return None
 
 
 def _viewer_url(*, order_id: str, request: Request | None = None) -> str:
@@ -745,7 +751,7 @@ def deliver_order(
         delivery_method=DeliveryMethod(payload.delivery_method),
         access_password_hash=hash_password(password),
         access_password_last4=password[-4:],
-        access_password_token=password_vault.encrypt_password(password),
+        access_password_token=_encrypt_password_optional(password),
         status=OrderStatus.active,
         operator_id=admin.id,
     )
@@ -1004,7 +1010,7 @@ def reset_order_password(
     new_password = _generate_password()
     o.access_password_hash = hash_password(new_password)
     o.access_password_last4 = new_password[-4:]
-    o.access_password_token = password_vault.encrypt_password(new_password)
+    o.access_password_token = _encrypt_password_optional(new_password)
     o.password_version = int(o.password_version) + 1
     db.add(o)
     db.commit()
