@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from decimal import Decimal
 from datetime import datetime
@@ -106,6 +106,8 @@ class Order(Base):
 
     access_password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     access_password_last4: Mapped[str] = mapped_column(String(4), nullable=False)
+    # Encrypted access password (for admin retrieval/copy).
+    access_password_token: Mapped[str | None] = mapped_column(String(800), nullable=True)
     password_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
     status: Mapped[OrderStatus] = mapped_column(SAEnum(OrderStatus), nullable=False, default=OrderStatus.active)

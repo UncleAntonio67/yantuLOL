@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 720
     viewer_token_expire_minutes: int = 15
 
+    # Optional: store order access passwords in encrypted form so admins can retrieve/copy later.
+    # If not set, it will be derived from JWT_SECRET_KEY (rotating JWT secret will break decrypting old passwords).
+    password_vault_key: str | None = None
+
+
     # Storage
     source_pdf_dir: str = str(_project_root() / "backend" / "storage" / "source_pdfs")
     product_image_dir: str = str(_project_root() / "backend" / "storage" / "product_images")

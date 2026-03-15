@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.api.admin.routes import router as admin_router
 from app.api.viewer.routes import router as viewer_router
@@ -47,6 +48,9 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+    # Compress JSON/HTML responses to reduce latency on mobile networks.
+    app.add_middleware(GZipMiddleware, minimum_size=700)
 
     if settings.environment == "dev":
         app.add_middleware(

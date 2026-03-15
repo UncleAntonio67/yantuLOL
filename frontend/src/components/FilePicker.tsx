@@ -1,4 +1,4 @@
-﻿import React, { useId, useMemo, useState } from "react";
+import React, { useId, useMemo, useState } from "react";
 
 export default function FilePicker(props: {
   name: string;

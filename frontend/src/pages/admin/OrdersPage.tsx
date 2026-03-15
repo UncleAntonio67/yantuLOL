@@ -1,9 +1,9 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Pagination from "../../components/Pagination";
 import { Input, Label, Select } from "../../components/Field";
-import { apiJson } from "../../lib/api";
+import { apiJson, apiJsonCached } from "../../lib/api";
 import { toast } from "../../lib/toast";
 import type { DeliverResponse, Order, OrderPage, Product, SendEmailResponse, TeamMember } from "../../lib/types";
 
@@ -34,22 +34,33 @@ function shortId(id: string) {
 }
 
 async function safeCopy(text: string) {
+  const t = String(text || "");
+  if (!t) {
+    toast.error("无可复制内容");
+    return false;
+  }
   try {
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(t);
     toast.success("已复制");
     return true;
   } catch {
-    toast.error("复制失败：浏览器可能禁止了剪贴板权限");
+    try {
+      window.prompt("复制失败，请手动复制：", t);
+      toast.info("已打开手动复制窗口");
+    } catch {
+      toast.error("复制失败：浏览器可能禁止了剪贴板权限");
+    }
     return false;
   }
 }
-
 export default function OrdersPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [operators, setOperators] = useState<TeamMember[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+
+  const loadSeq = useRef(0);
 
   // mobile tabs
   const [mobileTab, setMobileTab] = useState<"deliver" | "records">("deliver");
@@ -64,6 +75,9 @@ export default function OrdersPage() {
   const [createdFromQuery, setCreatedFromQuery] = useState("");
   const [createdToQuery, setCreatedToQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+
+  const [sortBy, setSortBy] = useState<"created_at" | "unit_price">("created_at");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
 
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -98,10 +112,12 @@ export default function OrdersPage() {
 
   const [resetRes, setResetRes] = useState<ResetResult | null>(null);
 
+  const [pwDlg, setPwDlg] = useState<{ orderId: string; loading: boolean; password: string; err?: string } | null>(null);
+
   async function loadBootstrap() {
     setErr(null);
     try {
-      const [ps, team] = await Promise.all([apiJson<Product[]>("/api/admin/products"), apiJson<TeamMember[]>("/api/admin/team")]);
+      const [ps, team] = await Promise.all([apiJsonCached<Product[]>("/api/admin/products", 10000), apiJsonCached<TeamMember[]>("/api/admin/team", 10000)]);
       setProducts(ps);
       setOperators(team);
       if (!productId && ps.length) setProductId(ps[0].id);
@@ -113,6 +129,7 @@ export default function OrdersPage() {
   async function loadOrders() {
     setErr(null);
     setLoading(true);
+    const seq = ++loadSeq.current;
     try {
       const params = new URLSearchParams();
       if (buyerIdQuery) params.set("buyer_id", buyerIdQuery);
@@ -123,13 +140,16 @@ export default function OrdersPage() {
       if (createdToQuery) params.set("created_to", createdToQuery);
       params.set("page", String(page));
       params.set("page_size", String(pageSize));
+      params.set("sort_by", sortBy);
+      params.set("sort_dir", sortDir);
       const os = await apiJson<OrderPage>(`/api/admin/orders/paged?${params.toString()}`);
+      if (seq !== loadSeq.current) return;
       setOrders(os.items);
       setTotal(os.total);
     } catch (ex: any) {
       setErr(ex?.message || "加载失败");
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }
 
@@ -141,7 +161,7 @@ export default function OrdersPage() {
   useEffect(() => {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, buyerIdQuery, productFilter, operatorFilter, statusFilter, createdFromQuery, createdToQuery]);
+  }, [page, buyerIdQuery, productFilter, operatorFilter, statusFilter, createdFromQuery, createdToQuery, sortBy, sortDir]);
 
   const activeCount = useMemo(() => orders.filter((o) => o.status === "active").length, [orders]);
 
@@ -179,6 +199,17 @@ export default function OrdersPage() {
       toast.info("新密码仅显示一次，请立即发送给买家");
     } catch (ex: any) {
       setErr(ex?.message || "重置失败");
+    }
+  }
+
+  async function copyOrderPassword(orderId: string) {
+    setErr(null);
+    setPwDlg({ orderId, loading: true, password: "" });
+    try {
+      const r = await apiJson<{ order_id: string; password: string }>(`/api/admin/orders/${orderId}/password`);
+      setPwDlg({ orderId, loading: false, password: r.password });
+    } catch (ex: any) {
+      setPwDlg({ orderId, loading: false, password: "", err: ex?.message || "无法获取密码（旧订单可能未存储，请使用重置密码）" });
     }
   }
 
@@ -400,7 +431,7 @@ export default function OrdersPage() {
 
   const recordsPanel = (
     <Card title="发货记录 & 售后" subtitle="支持按买家、商品、操作人、日期筛选">
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 w-full">
+      <div className="grid grid-cols-1 md:grid-cols-8 gap-3 w-full">
         <div>
           <Label>买家ID</Label>
           <Input value={buyerIdInput} onChange={(e) => setBuyerIdInput(e.target.value)} placeholder="包含匹配" />
@@ -453,9 +484,23 @@ export default function OrdersPage() {
             <option value="refunded">已退款</option>
           </Select>
         </div>
-        <div className="md:col-span-5 flex items-end">
+                <div>
+          <Label>排序</Label>
+          <Select value={sortBy} onChange={(e) => { setSortBy(e.target.value as any); setPage(1); }}>
+            <option value="created_at">创建时间</option>
+            <option value="unit_price">金额</option>
+          </Select>
+        </div>
+        <div>
+          <Label>方向</Label>
+          <Select value={sortDir} onChange={(e) => { setSortDir(e.target.value as any); setPage(1); }}>
+            <option value="desc">降序</option>
+            <option value="asc">升序</option>
+          </Select>
+        </div>
+<div className="md:col-span-5 flex items-end">
           <div className="text-[11px] text-gray-600 leading-5">
-            系统不保存明文密码。需要再次发送密码时，请使用“重置密码”，新密码会自动复制，且旧密码立即失效。
+            系统会以加密方式保存密码，便于找回与复制；如遇旧订单无密码，可使用“重置密码”，新密码会自动复制且旧密码立即失效。
           </div>
         </div>
       </div>
@@ -477,7 +522,7 @@ export default function OrdersPage() {
                   <th className="px-3 py-3">操作人</th>
                   <th className="px-3 py-3">状态</th>
                   <th className="px-3 py-3">营收</th>
-                  <th className="px-3 py-3">后4位</th>
+                  <th className="px-3 py-3">密码</th>
                   <th className="px-3 py-3">创建</th>
                   <th className="px-3 py-3 text-right">操作</th>
                 </tr>
@@ -504,9 +549,7 @@ export default function OrdersPage() {
                     <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
                       <div className="inline-flex items-center gap-2">
                         <span>{o.password_last4}</span>
-                        <button className="text-[11px] font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={() => void safeCopy(o.password_last4)}>
-                          复制
-                        </button>
+                        <button className="text-[11px] font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={() => void copyOrderPassword(o.id)}>查看/复制</button>
                       </div>
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{fmtDate(o.created_at)}</td>
@@ -595,7 +638,7 @@ export default function OrdersPage() {
                     <div className="text-[11px] text-gray-500">后4位</div>
                     <div className="mt-1 flex items-center justify-between gap-2">
                       <span className="font-mono font-semibold text-gray-900">{o.password_last4}</span>
-                      <button className="text-[11px] font-semibold text-gray-600" type="button" onClick={() => void safeCopy(o.password_last4)}>复制</button>
+                      <button className="text-[11px] font-semibold text-gray-600" type="button" onClick={() => void copyOrderPassword(o.id)}>查看/复制</button>
                     </div>
                   </div>
                 </div>
@@ -664,6 +707,40 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
-    </div>
+
+      {pwDlg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="glass w-full max-w-lg rounded-2xl shadow-soft overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="font-black">订单密码</div>
+              <button className="text-sm text-gray-600 hover:text-brand-700" onClick={() => setPwDlg(null)}>
+                关闭
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="text-xs text-gray-600">订单: <span className="font-mono">{pwDlg.orderId}</span></div>
+              {pwDlg.loading ? (
+                <div className="text-sm text-gray-600">加载中...</div>
+              ) : pwDlg.err ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{pwDlg.err}</div>
+              ) : (
+                <div className="rounded-xl border border-brand-200 bg-brand-50 p-4">
+                  <div className="text-xs text-gray-700">密码</div>
+                  <div className="mt-1 font-mono font-black text-brand-800 text-lg break-all">{pwDlg.password}</div>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button tone="ghost" size="sm" type="button" disabled={pwDlg.loading || !pwDlg.password} onClick={() => void safeCopy(pwDlg.password)}>
+                  复制密码
+                </Button>
+                <Button tone="ghost" size="sm" type="button" onClick={() => setPwDlg(null)}>
+                  关闭
+                </Button>
+              </div>
+              <div className="text-[11px] text-gray-600 leading-5">提示: 仅管理员可查看。若买家反馈密码遗失，建议优先使用“重置密码并复制”来阻断旧密码。</div>
+            </div>
+          </div>
+        </div>
+      )}    </div>
   );
 }

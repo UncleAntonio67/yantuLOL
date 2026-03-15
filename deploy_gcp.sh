@@ -1,5 +1,6 @@
 ﻿#!/usr/bin/env bash
 set -euo pipefail
+# Note: this script expects env vars to be provided via Cloud Run --set-env-vars or --env-vars-file.
 
 # One-click deploy to Google Cloud Run.
 # Requirements:

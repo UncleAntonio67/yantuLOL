@@ -1,4 +1,4 @@
-﻿import { clearAdminToken, getAdminToken } from "./storage";
+import { clearAdminToken, getAdminToken } from "./storage";
 import type { ViewerMeta } from "./types";
 
 export type ApiError = {
@@ -78,7 +78,57 @@ export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-export async function apiForm<T>(path: string, form: FormData, init?: RequestInit): Promise<T> {
+type CacheEntry = {
+  expiresAt: number;
+  value?: unknown;
+  inFlight?: Promise<unknown>;
+};
+
+// In-memory GET cache with TTL + in-flight de-dup. This improves perceived speed on pages
+// that repeatedly load the same bootstrap data (products/team/etc).
+const _jsonCache = new Map<string, CacheEntry>();
+
+function _cacheKey(path: string): string {
+  // Keyed by token to avoid cross-user data bleed after logout/login.
+  const token = getAdminToken() || "";
+  return `${token}::${path}`;
+}
+
+export function invalidateApiCache(prefix: string = ""): void {
+  if (!prefix) {
+    _jsonCache.clear();
+    return;
+  }
+  for (const k of Array.from(_jsonCache.keys())) {
+    if (k.endsWith(prefix) || k.includes(`::${prefix}`)) _jsonCache.delete(k);
+  }
+}
+
+export async function apiJsonCached<T>(path: string, ttlMs: number = 5000, init?: RequestInit): Promise<T> {
+  const method = (init?.method || "GET").toUpperCase();
+  if (method !== "GET") return await apiJson<T>(path, init);
+  if (init?.body) return await apiJson<T>(path, init);
+
+  const now = Date.now();
+  const key = _cacheKey(path);
+  const existing = _jsonCache.get(key);
+  if (existing?.value !== undefined && existing.expiresAt > now) return existing.value as T;
+  if (existing?.inFlight) return (await existing.inFlight) as T;
+
+  const p = (async () => {
+    const v = await apiJson<T>(path, init);
+    _jsonCache.set(key, { expiresAt: now + Math.max(0, ttlMs), value: v });
+    return v;
+  })();
+
+  _jsonCache.set(key, { expiresAt: now + Math.max(0, ttlMs), inFlight: p });
+  try {
+    return (await p) as T;
+  } catch (e) {
+    _jsonCache.delete(key);
+    throw e;
+  }
+}export async function apiForm<T>(path: string, form: FormData, init?: RequestInit): Promise<T> {
   const token = getAdminToken();
   const headers = new Headers(init?.headers || {});
   headers.set("Accept", "application/json");

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import { apiJson } from "../../lib/api";
@@ -17,7 +17,34 @@ function fmtBytes(n: number) {
   return `${x.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
 }
 
-export default function SystemPage() {
+
+type BarItem = { label: string; value: number; hint?: string };
+
+function BarChart(props: { items: BarItem[]; valueFmt?: (v: number) => string }) {
+  const items = (props.items || []).filter((x) => Number.isFinite(x.value) && x.value > 0);
+  if (!items.length) return <div className="text-sm text-gray-600">暂无可视化数据</div>;
+  const max = Math.max(...items.map((x) => x.value));
+  return (
+    <div className="space-y-2">
+      {items.map((it) => {
+        const pct = max > 0 ? Math.max(2, Math.round((it.value / max) * 100)) : 0;
+        return (
+          <div key={it.label} className="grid grid-cols-[110px_1fr_88px] gap-3 items-center">
+            <div className="text-[11px] font-semibold text-gray-700 truncate" title={it.label}>
+              {it.label}
+            </div>
+            <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full rounded-full bg-brand-600" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="text-[11px] text-gray-600 text-right tabular-nums">
+              {props.valueFmt ? props.valueFmt(it.value) : String(it.value)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}export default function SystemPage() {
   const [data, setData] = useState<SystemOverview | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -90,6 +117,16 @@ export default function SystemPage() {
 
           <Card title="数据库状态" subtitle="连通性与核心指标">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="md:col-span-3 rounded-2xl border border-gray-100 bg-white/70 p-4">
+              <div className="text-xs font-semibold tracking-wide text-gray-700">核心指标分布</div>
+              <div className="mt-3">
+                <BarChart valueFmt={(v) => String(Math.round(v))} items={[
+                  { label: "Products", value: Number(data.db.products || 0) },
+                  { label: "Orders", value: Number(data.db.orders || 0) },
+                  { label: "Viewed24h", value: Number(data.db.orders_viewed_24h || 0) }
+                ]} />
+              </div>
+            </div>
               <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
                 <div className="text-xs text-gray-500">连通性</div>
                 <div className={data.db.ok ? "mt-1 font-black text-green-700" : "mt-1 font-black text-red-700"}>{data.db.ok ? "OK" : "ERROR"}</div>
@@ -111,6 +148,14 @@ export default function SystemPage() {
               <div className="text-sm text-gray-600">当前未启用 R2（使用本地磁盘存储）。</div>
             ) : (
               <div className="space-y-3">
+                {data.r2.prefixes && data.r2.prefixes.length > 0 && (
+                  <div className="rounded-2xl border border-gray-100 bg-white/70 p-4">
+                    <div className="text-xs font-semibold tracking-wide text-gray-700">容量分布 (Bytes)</div>
+                    <div className="mt-3">
+                      <BarChart valueFmt={(v) => fmtBytes(v)} items={data.r2.prefixes.map((p) => ({ label: p.prefix, value: Number(p.bytes || 0) }))} />
+                    </div>
+                  </div>
+                )}
                 <div className="text-xs text-gray-600">Bucket: {data.r2.bucket || "-"}</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {data.r2.prefixes.map((p) => (

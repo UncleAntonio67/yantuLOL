@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/Card";
 import { apiJson } from "../../lib/api";
 import type { DashboardAnalytics, DashboardStats } from "../../lib/types";

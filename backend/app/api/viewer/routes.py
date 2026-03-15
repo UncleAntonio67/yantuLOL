@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timezone
 import base64
@@ -119,7 +119,8 @@ def viewer_auth(payload: ViewerAuthRequest, db: Session = Depends(get_db)) -> Vi
         raise HTTPException(status_code=404, detail="Order not found")
     if o.status != OrderStatus.active:
         raise HTTPException(status_code=403, detail="Order is not active")
-    if not verify_password(payload.password, o.access_password_hash):
+    pw = (payload.password or "").strip()
+    if not verify_password(pw, o.access_password_hash):
         raise HTTPException(status_code=401, detail="Invalid password")
 
     token = create_viewer_token(order_id=o.id, password_version=o.password_version)
@@ -222,7 +223,8 @@ def viewer_download(viewer_token: str, attachment_id: str, payload: ViewerDownlo
     o = _load_active_order(order_id, pv, db)
     if not o.confirmed_at:
         raise HTTPException(status_code=403, detail="Download is not enabled yet")
-    if not verify_password(payload.password, o.access_password_hash):
+    pw = (payload.password or "").strip()
+    if not verify_password(pw, o.access_password_hash):
         raise HTTPException(status_code=401, detail="Invalid password")
 
     p = db.get(Product, o.product_id)
@@ -245,7 +247,7 @@ def viewer_download(viewer_token: str, attachment_id: str, payload: ViewerDownlo
         pdf_bytes=src,
         watermark_text=watermark_text,
         font_file=settings.resolved_watermark_font_file(),
-        user_password=payload.password,
+        user_password=pw,
         owner_password=settings.jwt_secret_key,
     )
     headers = {

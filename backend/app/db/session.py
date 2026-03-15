@@ -49,47 +49,65 @@ def _sqlite_has_column(conn, table: str, column: str) -> bool:
 
 def ensure_schema() -> None:
     """
-    Minimal idempotent schema upgrades for the dev SQLite DB.
-    Production should use Alembic; this keeps the local MVP DB working without manual migration steps.
+    Minimal idempotent schema upgrades.
+
+    This project intentionally avoids a full Alembic migration flow for MVP speed.
+    For production, you should replace this with real migrations.
     """
     settings = get_settings()
-    if not settings.database_url.startswith("sqlite"):
-        return
 
     with engine.begin() as conn:
-        # New table: product_attachments
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS product_attachments (
-                    id TEXT PRIMARY KEY,
-                    product_id TEXT NOT NULL,
-                    filename TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    sort_index INTEGER NOT NULL DEFAULT 0,
-                    created_at DATETIME DEFAULT (CURRENT_TIMESTAMP) NOT NULL,
-                    FOREIGN KEY(product_id) REFERENCES products(id)
+        if settings.database_url.startswith("sqlite"):
+            # New table: product_attachments
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS product_attachments (
+                        id TEXT PRIMARY KEY,
+                        product_id TEXT NOT NULL,
+                        filename TEXT NOT NULL,
+                        file_path TEXT NOT NULL,
+                        sort_index INTEGER NOT NULL DEFAULT 0,
+                        created_at DATETIME DEFAULT (CURRENT_TIMESTAMP) NOT NULL,
+                        FOREIGN KEY(product_id) REFERENCES products(id)
+                    )
+                    """
                 )
-                """
             )
-        )
-        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_product_attachments_product_id ON product_attachments(product_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_product_attachments_product_id ON product_attachments(product_id)"))
 
-        # Orders: revenue + confirmation workflow
-        if not _sqlite_has_column(conn, "orders", "unit_price"):
-            conn.execute(text("ALTER TABLE orders ADD COLUMN unit_price NUMERIC(12,2)"))
-        if not _sqlite_has_column(conn, "orders", "confirmed_at"):
-            conn.execute(text("ALTER TABLE orders ADD COLUMN confirmed_at DATETIME"))
-        if not _sqlite_has_column(conn, "orders", "confirmed_by"):
-            conn.execute(text("ALTER TABLE orders ADD COLUMN confirmed_by TEXT"))
+            # Orders: revenue + confirmation workflow
+            if not _sqlite_has_column(conn, "orders", "unit_price"):
+                conn.execute(text("ALTER TABLE orders ADD COLUMN unit_price NUMERIC(12,2)"))
+            if not _sqlite_has_column(conn, "orders", "confirmed_at"):
+                conn.execute(text("ALTER TABLE orders ADD COLUMN confirmed_at DATETIME"))
+            if not _sqlite_has_column(conn, "orders", "confirmed_by"):
+                conn.execute(text("ALTER TABLE orders ADD COLUMN confirmed_by TEXT"))
+            if not _sqlite_has_column(conn, "orders", "access_password_token"):
+                conn.execute(text("ALTER TABLE orders ADD COLUMN access_password_token TEXT"))
 
-        # Backfill unit_price for existing rows (best-effort).
-        conn.execute(
-            text(
-                """
-                UPDATE orders
-                SET unit_price = COALESCE(unit_price, (SELECT products.price FROM products WHERE products.id = orders.product_id), 0)
-                WHERE unit_price IS NULL
-                """
+            # Backfill unit_price for existing rows (best-effort).
+            conn.execute(
+                text(
+                    """
+                    UPDATE orders
+                    SET unit_price = COALESCE(unit_price, (SELECT products.price FROM products WHERE products.id = orders.product_id), 0)
+                    WHERE unit_price IS NULL
+                    """
+                )
             )
-        )
+            return
+
+        # Postgres (Neon) / others: best-effort additive migrations.
+        try:
+            conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS access_password_token TEXT"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_created_at ON orders(created_at)"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_orders_unit_price ON orders(unit_price)"))
+        except Exception:
+            pass

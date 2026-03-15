@@ -254,3 +254,9 @@ class SystemOverviewResponse(BaseModel):
     db: SystemDbOverview
     r2: SystemR2Overview
 
+
+
+class OrderPasswordResponse(BaseModel):
+    order_id: str
+    password: str
+

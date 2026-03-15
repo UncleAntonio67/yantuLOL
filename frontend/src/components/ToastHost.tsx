@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { onToast, type ToastPayload } from "../lib/toast";
 
 type ToastItem = {

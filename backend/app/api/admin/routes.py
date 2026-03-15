@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -42,13 +42,21 @@ from app.schemas.schemas import (
     TeamMemberCreate,
     TeamMemberOut,
     SystemOverviewResponse,
+    OrderPasswordResponse,
 )
 from app.services.emailer import send_delivery_email
 from app.utils.public_url import public_frontend_base_url
+from app.utils import password_vault
 
 
 router = APIRouter()
 _bearer = HTTPBearer(auto_error=False)
+# Simple in-memory caching for heavy monitoring/analytics endpoints.
+# Cloud Run instances are ephemeral, but caching still reduces repeated R2 list calls.
+_SYSTEM_OVERVIEW_TTL_S = 15.0
+_DASHBOARD_ANALYTICS_TTL_S = 10.0
+_system_overview_cache: tuple[float, SystemOverviewResponse] | None = None
+_dashboard_analytics_cache: tuple[float, DashboardAnalytics] | None = None
 
 
 def _require_admin(
@@ -737,6 +745,7 @@ def deliver_order(
         delivery_method=DeliveryMethod(payload.delivery_method),
         access_password_hash=hash_password(password),
         access_password_last4=password[-4:],
+        access_password_token=password_vault.encrypt_password(password),
         status=OrderStatus.active,
         operator_id=admin.id,
     )
@@ -827,6 +836,8 @@ def list_orders_paged(
     status_filter: str | None = None,
     created_from: date | None = None,
     created_to: date | None = None,
+    sort_by: str | None = "created_at",
+    sort_dir: str | None = "desc",
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
     _: TeamMember = Depends(_require_admin),
@@ -837,7 +848,6 @@ def list_orders_paged(
         select(Order, Product, TeamMember)
         .join(Product, Product.id == Order.product_id)
         .join(TeamMember, TeamMember.id == Order.operator_id)
-        .order_by(Order.created_at.desc())
     )
     if buyer_id:
         count_stmt = count_stmt.where(Order.buyer_id.contains(buyer_id))
@@ -864,6 +874,23 @@ def list_orders_paged(
         ct = datetime.combine(created_to, time.min).replace(tzinfo=timezone.utc) + timedelta(days=1)
         count_stmt = count_stmt.where(Order.created_at < ct)
         data_stmt = data_stmt.where(Order.created_at < ct)
+
+    # Sorting
+    col = Order.created_at
+    if sort_by and sort_by not in {"created_at", "unit_price"}:
+        raise HTTPException(status_code=400, detail="Invalid sort_by")
+    if sort_by == "unit_price":
+        col = Order.unit_price
+    d = (sort_dir or "desc").lower()
+    if d not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail="Invalid sort_dir")
+    ob = col.asc() if d == "asc" else col.desc()
+    # Stable ordering to avoid row jumps between pages
+    if col is Order.created_at:
+        data_stmt = data_stmt.order_by(ob, Order.id.asc())
+    else:
+        data_stmt = data_stmt.order_by(ob, Order.created_at.desc(), Order.id.asc())
+
     total = int(db.scalar(count_stmt) or 0)
     total_pages = max(1, math.ceil(total / page_size)) if total else 1
     offset = (page - 1) * page_size
@@ -977,6 +1004,7 @@ def reset_order_password(
     new_password = _generate_password()
     o.access_password_hash = hash_password(new_password)
     o.access_password_last4 = new_password[-4:]
+    o.access_password_token = password_vault.encrypt_password(new_password)
     o.password_version = int(o.password_version) + 1
     db.add(o)
     db.commit()
@@ -1058,6 +1086,11 @@ def dashboard_stats(_: TeamMember = Depends(_require_admin), db: Session = Depen
 
 @router.get("/dashboard/analytics", response_model=DashboardAnalytics)
 def dashboard_analytics(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_db)):
+    global _dashboard_analytics_cache
+    now_ts = time_mod.time()
+    if _dashboard_analytics_cache and (now_ts - _dashboard_analytics_cache[0]) < _DASHBOARD_ANALYTICS_TTL_S:
+        return _dashboard_analytics_cache[1]
+
     confirmed_sales = func.coalesce(
         func.sum(case(((Order.status == OrderStatus.active) & (Order.confirmed_at.is_not(None)), 1), else_=0)),
         0,
@@ -1104,20 +1137,21 @@ def dashboard_analytics(_: TeamMember = Depends(_require_admin), db: Session = D
     revenue_ranking.sort(key=lambda x: x["revenue"], reverse=True)
     refund_rates.sort(key=lambda x: x["refund_rate"], reverse=True)
 
-    return DashboardAnalytics(
+    res = DashboardAnalytics(
         sales_ranking=sales_ranking[:10],
         revenue_ranking=revenue_ranking[:10],
         refund_rate_by_product=refund_rates[:10],
     )
-
-
-
-
-
-
+    _dashboard_analytics_cache = (now_ts, res)
+    return res
 
 @router.get("/system/overview", response_model=SystemOverviewResponse)
 def system_overview(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_db)):
+    global _system_overview_cache
+    now_ts = time_mod.time()
+    if _system_overview_cache and (now_ts - _system_overview_cache[0]) < _SYSTEM_OVERVIEW_TTL_S:
+        return _system_overview_cache[1]
+
     settings = get_settings()
 
     # DB health
@@ -1210,7 +1244,7 @@ def system_overview(_: TeamMember = Depends(_require_admin), db: Session = Depen
             # Keep the endpoint stable even if R2 listing fails.
             prefixes = []
 
-    return SystemOverviewResponse(
+    res = SystemOverviewResponse(
         environment=settings.environment,
         server_time=now,
         db={
@@ -1232,3 +1266,22 @@ def system_overview(_: TeamMember = Depends(_require_admin), db: Session = Depen
             "prefixes": prefixes,
         },
     )
+    _system_overview_cache = (now_ts, res)
+    return res
+
+@router.get("/orders/{order_id}/password", response_model=OrderPasswordResponse)
+def get_order_password(
+    order_id: str,
+    _: TeamMember = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    o = db.get(Order, order_id)
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if not o.access_password_token:
+        raise HTTPException(status_code=404, detail="Password is not stored for this order")
+    try:
+        pw = password_vault.decrypt_password(o.access_password_token)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to decrypt password")
+    return OrderPasswordResponse(order_id=o.id, password=pw)
