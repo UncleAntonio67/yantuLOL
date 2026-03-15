@@ -3,7 +3,8 @@ import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Segmented from "../../components/Segmented";
 import Pagination from "../../components/Pagination";
-import { Input, Label, Select } from "../../components/Field";
+import { Input, Label } from "../../components/Field";
+import SelectMenu from "../../components/SelectMenu";
 import { apiJson, apiJsonCached } from "../../lib/api";
 import { toast } from "../../lib/toast";
 import type { DeliverResponse, Order, OrderPage, Product, SendEmailResponse, TeamMember } from "../../lib/types";
@@ -281,14 +282,13 @@ export default function OrdersPage() {
       >
         <div>
           <Label>选择商品</Label>
-          <Select value={productId} onChange={(e) => setProductId(e.target.value)}>
-            <option value="">--请选择--</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
+          <SelectMenu
+            value={productId}
+            onChange={(v) => setProductId(v)}
+            options={products.map((p) => ({ value: p.id, label: p.name }))}
+            placeholder="?????"
+            searchable
+          />
         </div>
         <div>
           <Label>买家ID (用于水印)</Label>
@@ -296,11 +296,16 @@ export default function OrdersPage() {
         </div>
         <div>
           <Label>发货方式</Label>
-          <Select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value as any)}>
-            <option value="text">图文私信文案</option>
-            <option value="email">发至邮箱 (SMTP)</option>
-            <option value="qrcode">二维码 (同链接)</option>
-          </Select>
+          <Segmented
+            size="sm"
+            value={deliveryMethod}
+            options={[
+              { value: "text", label: "??????" },
+              { value: "email", label: "????" },
+              { value: "qrcode", label: "???" }
+            ]}
+            onChange={(v: any) => { setDeliveryMethod(v as any); }}
+          />
         </div>
         {deliveryMethod === "email" && (
           <div>
@@ -442,40 +447,38 @@ export default function OrdersPage() {
       </div>
 
       {filtersOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="glass w-full max-w-lg rounded-2xl shadow-soft overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 p-4">
+          <div className="glass w-full max-w-lg rounded-t-3xl md:rounded-2xl shadow-soft overflow-hidden">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white/80 backdrop-blur">
               <div className="font-black">筛选与排序</div>
               <button className="text-sm text-gray-600 hover:text-brand-700" type="button" onClick={() => setFiltersOpen(false)}>
                 关闭
               </button>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="max-h-[75vh] overflow-auto p-4 space-y-4">
               <div>
                 <Label>买家ID</Label>
                 <Input value={buyerIdInput} onChange={(e) => setBuyerIdInput(e.target.value)} placeholder="包含匹配" />
               </div>
               <div>
                 <Label>商品</Label>
-                <Select value={productFilter} onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}>
-                  <option value="">全部</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </Select>
+                <SelectMenu
+                  value={productFilter}
+                  onChange={(v) => { setProductFilter(v); setPage(1); }}
+                  options={[{ value: "", label: "??" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
+                  placeholder="??"
+                  searchable
+                />
               </div>
               <div>
                 <Label>操作人</Label>
-                <Select value={operatorFilter} onChange={(e) => { setOperatorFilter(e.target.value); setPage(1); }}>
-                  <option value="">全部</option>
-                  {operators.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.nickname}
-                    </option>
-                  ))}
-                </Select>
+                <SelectMenu
+                  value={operatorFilter}
+                  onChange={(v) => { setOperatorFilter(v); setPage(1); }}
+                  options={[{ value: "", label: "??" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
+                  placeholder="??"
+                  searchable
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -533,7 +536,7 @@ export default function OrdersPage() {
                   }}
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="sticky bottom-0 -mx-4 px-4 py-3 bg-white/80 backdrop-blur border-t border-gray-100 flex gap-2">
                 <Button
                   className="w-full"
                   type="button"
@@ -569,28 +572,30 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
-      <div className="hidden md:grid grid-cols-1 md:grid-cols-8 gap-3 w-full">
+      <div className="hidden md:grid sticky top-2 z-10 grid-cols-8 gap-3 w-full rounded-2xl border border-gray-100 bg-white/80 p-3 backdrop-blur shadow-soft">
         <div>
           <Label>买家ID</Label>
           <Input value={buyerIdInput} onChange={(e) => setBuyerIdInput(e.target.value)} placeholder="包含匹配" />
         </div>
         <div>
           <Label>商品</Label>
-          <Select value={productFilter} onChange={(e) => { setProductFilter(e.target.value); setPage(1); }}>
-            <option value="">全部</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </Select>
+          <SelectMenu
+                  value={productFilter}
+                  onChange={(v) => { setProductFilter(v); setPage(1); }}
+                  options={[{ value: "", label: "??" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
+                  placeholder="??"
+                  searchable
+                />
         </div>
         <div>
           <Label>操作人</Label>
-          <Select value={operatorFilter} onChange={(e) => { setOperatorFilter(e.target.value); setPage(1); }}>
-            <option value="">全部</option>
-            {operators.map((u) => (
-              <option key={u.id} value={u.id}>{u.nickname}</option>
-            ))}
-          </Select>
+          <SelectMenu
+                  value={operatorFilter}
+                  onChange={(v) => { setOperatorFilter(v); setPage(1); }}
+                  options={[{ value: "", label: "??" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
+                  placeholder="??"
+                  searchable
+                />
         </div>
         <div>
           <Label>开始日期</Label>

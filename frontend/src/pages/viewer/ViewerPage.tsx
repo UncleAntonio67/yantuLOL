@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import { Input, Label } from "../../components/Field";
-import { downloadViewerPdf, fetchViewerMeta, fetchViewerPdf, viewerAuth } from "../../lib/api";
+import { downloadViewerPdf, fetchViewerMeta, viewerAuth } from "../../lib/api";
 import type { ViewerMeta } from "../../lib/types";
 import * as pdfjsLib from "pdfjs-dist";
 
@@ -33,37 +33,22 @@ export default function ViewerPage() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dlBusyId, setDlBusyId] = useState<string | null>(null);
-  const [pdfBuf, setPdfBuf] = useState<ArrayBuffer | null>(null);
   const [rendering, setRendering] = useState(false);
-
-  const pdfCacheRef = useRef<Map<string, ArrayBuffer>>(new Map());
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const pdfUrl = useMemo(() => {
+    if (!viewerToken) return null;
+    const suffix = activeAttachmentId ? `/${encodeURIComponent(activeAttachmentId)}` : "";
+    return `/api/viewer/document/${encodeURIComponent(viewerToken)}${suffix}`;
+  }, [viewerToken, activeAttachmentId]);
 
   const watermarkHint = useMemo(() => {
     return orderId ? `订单 ${orderId} 的专属资料` : "专属资料";
   }, [orderId]);
 
-  useEffect(() => {
-    // Clear cache when viewer changes.
-    pdfCacheRef.current.clear();
-  }, [viewerToken]);
-
-  async function loadPdf(attId: string | null) {
-    if (!viewerToken) return;
-    const key = attId || "__default__";
-    const cached = pdfCacheRef.current.get(key);
-    if (cached) {
-      setPdfBuf(cached);
-      return;
-    }
-    const buf = await fetchViewerPdf(viewerToken, attId || undefined);
-    pdfCacheRef.current.set(key, buf);
-    setPdfBuf(buf);
-  }
-
   // Progressive rendering: render pages lazily when they enter viewport.
   useEffect(() => {
-    if (!pdfBuf || !containerRef.current) return;
+    if (!pdfUrl || !containerRef.current) return;
 
     let cancelled = false;
     let io: IntersectionObserver | null = null;
@@ -77,8 +62,16 @@ export default function ViewerPage() {
     container.innerHTML = "";
     setRendering(true);
 
+    // Prefer url mode so pdf.js can do range fetching.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const loadingTask: any = getDocument({ data: pdfBuf });
+    const loadingTask: any = getDocument({
+      url: pdfUrl,
+      withCredentials: false,
+      disableAutoFetch: false,
+      disableStream: false,
+      disableRange: false,
+      rangeChunkSize: 1 << 16
+    });
 
     (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,7 +79,7 @@ export default function ViewerPage() {
       if (cancelled) return;
 
       const numPages = Number(pdf.numPages || 0);
-      if (!numPages) throw new Error("无可渲染页面");
+      if (!numPages) throw new Error("??????");
 
       const first = await pdf.getPage(1);
       const vp1 = first.getViewport({ scale: 1 });
@@ -117,7 +110,7 @@ export default function ViewerPage() {
 
         const hint = document.createElement("div");
         hint.className = "px-3 py-2 text-[11px] text-gray-500";
-        hint.textContent = `第 ${pageNo} 页`;
+        hint.textContent = `? ${pageNo} ?`;
         wrap.appendChild(hint);
         return wrap;
       }
@@ -130,7 +123,7 @@ export default function ViewerPage() {
 
         const p = (async () => {
           try {
-            const target = container.querySelector(`div[data-page=\"${pageNo}\"]`) as HTMLDivElement | null;
+            const target = container.querySelector(`div[data-page="${pageNo}"]`) as HTMLDivElement | null;
             if (!target || cancelled) return;
 
             const page = await pdf.getPage(pageNo);
@@ -193,7 +186,7 @@ export default function ViewerPage() {
         // ignore
       }
     };
-  }, [pdfBuf]);
+  }, [pdfUrl]);
 
   // Best-effort: block common download/print shortcuts, and make printing blank.
   useEffect(() => {
@@ -231,7 +224,6 @@ export default function ViewerPage() {
       setMeta(m);
       const attId = activeAttachmentId || m.attachments?.[0]?.id || null;
       setActiveAttachmentId(attId);
-      await loadPdf(attId);
     } catch (ex: any) {
       setErr(normalizeViewerError(ex?.message || "刷新失败"));
     }
@@ -292,7 +284,6 @@ export default function ViewerPage() {
                     setMeta(m);
                     const first = m.attachments?.[0]?.id || null;
                     setActiveAttachmentId(first);
-                    await loadPdf(first);
                   } catch (ex: any) {
                     setErr(normalizeViewerError(ex?.message || "验证失败"));
                   } finally {
@@ -339,15 +330,10 @@ export default function ViewerPage() {
                           "rounded-xl px-3 py-2 text-xs font-semibold border transition",
                           activeAttachmentId === a.id ? "bg-brand-50 text-brand-700 border-brand-200" : "bg-white/70 text-gray-700 border-gray-200 hover:bg-gray-50"
                         ].join(" ")}
-                        onClick={async () => {
-                          if (!viewerToken) return;
+                        onClick={() => {
                           setErr(null);
                           setActiveAttachmentId(a.id);
-                          try {
-                            await loadPdf(a.id);
-                          } catch (ex: any) {
-                            setErr(normalizeViewerError(ex?.message || "加载失败"));
-                          }
+                          setRendering(true);
                         }}
                         type="button"
                       >

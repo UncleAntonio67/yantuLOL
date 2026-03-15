@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
-import { apiJson } from "../../lib/api";
+import { apiJson, apiJsonCached } from "../../lib/api";
 import type { SystemOverview } from "../../lib/types";
 
 function fmtBytes(n: number) {
@@ -53,7 +53,7 @@ function BarChart(props: { items: BarItem[]; valueFmt?: (v: number) => string })
     setErr(null);
     setBusy(true);
     try {
-      const d = await apiJson<SystemOverview>("/api/admin/system/overview");
+      const d = await apiJsonCached<SystemOverview>("/api/admin/system/overview", 5000);
       setData(d);
     } catch (ex: any) {
       setErr(ex?.message || "加载失败");

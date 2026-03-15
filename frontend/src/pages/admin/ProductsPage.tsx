@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Pagination from "../../components/Pagination";
-import { apiJson } from "../../lib/api";
+import { apiJson, apiJsonCached } from "../../lib/api";
 import type { AdminMe, Product, ProductPage } from "../../lib/types";
 
 function summaryText(s: string, max = 72) {
@@ -38,7 +38,7 @@ export default function ProductsPage() {
     setLoading(true);
     try {
       const [m, data] = await Promise.all([
-        apiJson<AdminMe>("/api/admin/me"),
+        apiJsonCached<AdminMe>("/api/admin/me", 10000),
         apiJson<ProductPage>(`/api/admin/products/paged?page=${page}&page_size=${pageSize}`)
       ]);
       setMe(m);

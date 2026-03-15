@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
+import Segmented from "../../components/Segmented";
 import FilePicker from "../../components/FilePicker";
 import { Input, Label, Textarea } from "../../components/Field";
-import { apiForm, apiJson } from "../../lib/api";
+import { apiForm, apiJson, apiJsonCached } from "../../lib/api";
 import { toast } from "../../lib/toast";
 import type { AdminMe, Product, ProductAttachment, ProductDetail } from "../../lib/types";
 
@@ -17,11 +18,12 @@ export default function ProductEditPage() {
   const [busy, setBusy] = useState(false);
   const [attBusy, setAttBusy] = useState(false);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [isActive, setIsActive] = useState<"true" | "false">("true");
 
   const canManage = me?.role === "super_admin";
 
   useEffect(() => {
-    apiJson<AdminMe>("/api/admin/me").then(setMe).catch(() => setMe(null));
+    apiJsonCached<AdminMe>("/api/admin/me", 10000).then(setMe).catch(() => setMe(null));
   }, []);
 
   useEffect(() => {
@@ -36,6 +38,7 @@ export default function ProductEditPage() {
     try {
       const d = await apiJson<ProductDetail>(`/api/admin/products/${productId}`);
       setDetail(d);
+      setIsActive(String((d as any).is_active) === "false" ? "false" : "true");
     } catch (ex: any) {
       setErr(ex?.message || "加载失败");
     }
@@ -156,14 +159,16 @@ export default function ProductEditPage() {
                 </div>
                 <div>
                   <Label>状态</Label>
-                  <select
-                    name="is_active"
-                    defaultValue={String(detail.is_active)}
-                    className="w-full rounded-xl border border-gray-200 bg-white/80 px-3 py-2 text-sm outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-200"
-                  >
-                    <option value="true">上架</option>
-                    <option value="false">下架</option>
-                  </select>
+                  <input type="hidden" name="is_active" value={isActive} />
+                  <Segmented
+                    size="sm"
+                    value={isActive}
+                    options={[
+                      { value: "true", label: "??" },
+                      { value: "false", label: "??" }
+                    ]}
+                    onChange={(v: any) => setIsActive(v)}
+                  />
                 </div>
               </div>
 

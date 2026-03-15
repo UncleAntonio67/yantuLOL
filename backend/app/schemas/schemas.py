@@ -26,6 +26,11 @@ class AdminMeResponse(BaseModel):
     role: str
 
 
+
+class ChangeMyPasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
 class TeamMemberOut(BaseModel):
     id: str
     username: str

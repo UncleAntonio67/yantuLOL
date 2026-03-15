@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
+import Button from "../../components/Button";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { apiJson } from "../../lib/api";
+import { Input, Label } from "../../components/Field";
+import { toast } from "../../lib/toast";
 import { ADMIN_TOKEN_CLEARED_EVENT, clearAdminToken, getAdminToken } from "../../lib/storage";
 import type { AdminMe } from "../../lib/types";
 
@@ -40,6 +43,12 @@ export default function AdminShell() {
   const [me, setMe] = useState<AdminMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwErr, setPwErr] = useState<string | null>(null);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwNew2, setPwNew2] = useState("");
 
   useEffect(() => {
     const onTokenCleared = () => nav("/admin/login", { replace: true });
@@ -138,9 +147,24 @@ export default function AdminShell() {
             <div className="text-sm font-bold text-gray-900">{me?.nickname || "-"}</div>
             <div className="text-xs text-gray-600">{roleText(me?.role)}</div>
           </div>
-          <button className="text-xs font-semibold text-gray-600 hover:text-brand-700" onClick={logout}>
-            退出
-          </button>
+          <div className="flex flex-col items-end gap-2">
+            <button
+              className="text-xs font-semibold text-gray-600 hover:text-brand-700"
+              type="button"
+              onClick={() => {
+                setPwErr(null);
+                setPwCurrent("");
+                setPwNew("");
+                setPwNew2("");
+                setPwOpen(true);
+              }}
+            >
+              ????
+            </button>
+            <button className="text-xs font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={logout}>
+              ??
+            </button>
+          </div>
         </div>
       </aside>
     );
@@ -156,6 +180,76 @@ export default function AdminShell() {
 
   return (
     <div className="min-h-screen">
+      {pwOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="glass w-full max-w-md rounded-2xl shadow-soft overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="font-black">????</div>
+              <button className="text-sm text-gray-600 hover:text-brand-700" type="button" onClick={() => setPwOpen(false)}>
+                ??
+              </button>
+            </div>
+            <form
+              className="p-5 space-y-4"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setPwErr(null);
+                if (!pwCurrent.trim()) {
+                  setPwErr("???????");
+                  return;
+                }
+                if (pwNew.length < 8) {
+                  setPwErr("????? 8 ?");
+                  return;
+                }
+                if (pwNew !== pwNew2) {
+                  setPwErr("???????????");
+                  return;
+                }
+                setPwBusy(true);
+                try {
+                  await apiJson("/api/admin/me/change-password", {
+                    method: "POST",
+                    body: JSON.stringify({ current_password: pwCurrent, new_password: pwNew })
+                  });
+                  toast.success("???????????");
+                  setPwOpen(false);
+                  logout();
+                } catch (ex: any) {
+                  setPwErr(ex?.message || "????");
+                } finally {
+                  setPwBusy(false);
+                }
+              }}
+            >
+              <div>
+                <Label>????</Label>
+                <Input type="password" value={pwCurrent} onChange={(e) => setPwCurrent(e.target.value)} autoComplete="current-password" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>???</Label>
+                  <Input type="password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} autoComplete="new-password" />
+                </div>
+                <div>
+                  <Label>?????</Label>
+                  <Input type="password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} autoComplete="new-password" />
+                </div>
+              </div>
+              {pwErr && <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{pwErr}</div>}
+              <div className="flex justify-end gap-2 pt-2">
+                <Button tone="ghost" type="button" onClick={() => setPwOpen(false)}>
+                  ??
+                </Button>
+                <Button type="submit" disabled={pwBusy}>
+                  {pwBusy ? "???..." : "????"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Mobile drawer */}
       <div className={["fixed inset-0 z-50 md:hidden", drawerOpen ? "" : "pointer-events-none"].join(" ")}>
         <div

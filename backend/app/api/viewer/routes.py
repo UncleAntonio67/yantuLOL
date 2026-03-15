@@ -190,7 +190,7 @@ def viewer_meta(viewer_token: str, db: Session = Depends(get_db)) -> ViewerMetaR
 
 
 @router.get("/document/{viewer_token}")
-def viewer_document_default(viewer_token: str, db: Session = Depends(get_db)) -> Response:
+def viewer_document_default(viewer_token: str, request: Request, db: Session = Depends(get_db)) -> Response:
     order_id, pv = _decode_viewer_token(viewer_token)
     o = _load_active_order(order_id, pv, db)
     p = db.get(Product, o.product_id)
@@ -198,12 +198,12 @@ def viewer_document_default(viewer_token: str, db: Session = Depends(get_db)) ->
         raise HTTPException(status_code=404, detail="Product not found")
     atts = _list_attachments(product=p, db=db)
     if not atts:
-        raise HTTPException(status_code=404, detail="没有可阅读的文件")
-    return viewer_document(viewer_token=viewer_token, attachment_id=atts[0].id, db=db)
+        raise HTTPException(status_code=404, detail="娌℃湁鍙槄璇荤殑鏂囦欢")
+    return viewer_document(viewer_token=viewer_token, attachment_id=atts[0].id, request=request, db=db)
 
 
 @router.get("/document/{viewer_token}/{attachment_id}")
-def viewer_document(viewer_token: str, attachment_id: str, db: Session = Depends(get_db)) -> Response:
+def viewer_document(viewer_token: str, attachment_id: str, request: Request, db: Session = Depends(get_db)) -> Response:
     settings = get_settings()
     order_id, pv = _decode_viewer_token(viewer_token)
     o = _load_active_order(order_id, pv, db)
@@ -215,35 +215,81 @@ def viewer_document(viewer_token: str, attachment_id: str, db: Session = Depends
     file_path, filename = _find_attachment_path(atts, attachment_id)
 
     if not file_path or str(file_path).startswith('__'):
-        raise HTTPException(status_code=404, detail="文件尚未上传")
+        raise HTTPException(status_code=404, detail="??????")
 
-    # Update view counters (best-effort)
-    o.view_count = int(o.view_count) + 1
-    o.last_view_at = datetime.now(timezone.utc)
-    db.add(o)
-    db.commit()
+    # pdf.js may issue multiple HTTP Range requests for a single view.
+    # Count a view only for the initial chunk, and at most once per 30s per order.
+    range_hdr = request.headers.get("range") or request.headers.get("Range")
+    try_count = True
+    if range_hdr:
+        rh = str(range_hdr).strip().lower()
+        try_count = rh.startswith("bytes=0-") or (rh == "bytes=0")
+
+    try:
+        if try_count:
+            now_dt = datetime.now(timezone.utc)
+            last = o.last_view_at
+            if not last or (now_dt - last).total_seconds() > 30:
+                o.view_count = int(o.view_count) + 1
+                o.last_view_at = now_dt
+                db.add(o)
+                db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     watermark_text = f"{o.buyer_id} | {o.id}"
-    try:
-        src, _ = storage.get_bytes(file_path)
-    except Exception:
-        raise HTTPException(status_code=404, detail="文件不存在或已被删除")
-
     font_file = settings.resolved_watermark_font_file()
+
     cache_key = (str(file_path), str(watermark_text), str(font_file or ""))
-    cached = _wm_cache_get(cache_key)
-    if cached is None:
+    out = _wm_cache_get(cache_key)
+    if out is None:
+        try:
+            src, _ = storage.get_bytes(file_path)
+        except Exception:
+            raise HTTPException(status_code=404, detail="文件不存在或已被删除")
         out = watermark_pdf_bytes(pdf_bytes=src, watermark_text=watermark_text, font_file=font_file)
         _wm_cache_put(cache_key, out)
-    else:
-        out = cached
+
     headers = {
         "Content-Type": "application/pdf",
         "Cache-Control": "no-store",
-        "Content-Disposition": f"inline; filename=\"{Path(filename).name}\"",
+        "Content-Disposition": f'inline; filename="{Path(filename).name}"',
         "X-Content-Type-Options": "nosniff",
         "Cross-Origin-Resource-Policy": "same-origin",
+        "Accept-Ranges": "bytes",
     }
+
+    total = len(out)
+    if range_hdr:
+        rh = str(range_hdr).strip().lower()
+        if rh.startswith("bytes="):
+            spec = rh[len("bytes="):]
+            if "," not in spec:
+                start_s, _, end_s = spec.partition("-")
+                try:
+                    start = int(start_s) if start_s else 0
+                except Exception:
+                    start = 0
+                try:
+                    end = int(end_s) if end_s else (total - 1)
+                except Exception:
+                    end = total - 1
+                start = max(0, start)
+                if total <= 0 or start >= total:
+                    h = dict(headers)
+                    h["Content-Range"] = f"bytes */{total}"
+                    return Response(status_code=416, media_type="application/pdf", headers=h)
+                end = min(total - 1, max(start, end))
+                chunk = out[start:end + 1]
+                h = dict(headers)
+                h["Content-Range"] = f"bytes {start}-{end}/{total}"
+                h["Content-Length"] = str(len(chunk))
+                return Response(content=chunk, status_code=206, media_type="application/pdf", headers=h)
+
+    headers["Content-Length"] = str(total)
     return Response(content=out, media_type="application/pdf", headers=headers)
 
 
@@ -274,13 +320,13 @@ def viewer_download(viewer_token: str, attachment_id: str, payload: ViewerDownlo
     file_path, filename = _find_attachment_path(atts, attachment_id)
 
     if not file_path or str(file_path).startswith('__'):
-        raise HTTPException(status_code=404, detail="文件尚未上传")
+        raise HTTPException(status_code=404, detail="鏂囦欢灏氭湭涓婁紶")
 
     # Do not persist generated PDFs on server to avoid storage growth.
     try:
         src, _ = storage.get_bytes(file_path)
     except Exception:
-        raise HTTPException(status_code=404, detail="文件不存在或已被删除")
+        raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦ㄦ垨宸茶鍒犻櫎")
     watermark_text = f"{o.buyer_id} | {o.id}"
     out = watermark_encrypt_pdf_bytes(
         pdf_bytes=src,

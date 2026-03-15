@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.models.models import DeliveryMethod, Order, OrderStatus, Product, ProductAttachment, Role, TeamMember
 from app.schemas.schemas import (
     AdminMeResponse,
+    ChangeMyPasswordRequest,
     DashboardAnalytics,
     DashboardStats,
     DeliverRequest,
@@ -213,6 +214,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
 @router.get("/me", response_model=AdminMeResponse)
 def me(admin: TeamMember = Depends(_require_admin)) -> AdminMeResponse:
     return AdminMeResponse(id=admin.id, username=admin.username, nickname=admin.nickname, role=admin.role.value)
+
+@router.post("/me/change-password")
+def change_my_password(
+    payload: ChangeMyPasswordRequest,
+    admin: TeamMember = Depends(_require_admin),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(payload.current_password, admin.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    admin.password_hash = hash_password(payload.new_password)
+    db.add(admin)
+    db.commit()
+    return {"ok": True}
+
 
 
 @router.get("/team", response_model=list[TeamMemberOut])

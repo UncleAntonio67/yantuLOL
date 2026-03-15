@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/Card";
-import { apiJson } from "../../lib/api";
+import { apiJson, apiJsonCached } from "../../lib/api";
 import type { DashboardAnalytics, DashboardStats } from "../../lib/types";
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -62,8 +62,8 @@ export default function DashboardPage() {
     (async () => {
       try {
         const [s, a] = await Promise.all([
-          apiJson<DashboardStats>("/api/admin/dashboard/stats"),
-          apiJson<DashboardAnalytics>("/api/admin/dashboard/analytics")
+          apiJsonCached<DashboardStats>("/api/admin/dashboard/stats", 5000),
+          apiJsonCached<DashboardAnalytics>("/api/admin/dashboard/analytics", 5000)
         ]);
         setStats(s);
         setAnalytics(a);

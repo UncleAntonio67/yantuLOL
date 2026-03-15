@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
-import { Input, Label, Select } from "../../components/Field";
-import { apiJson } from "../../lib/api";
+import { Input, Label } from "../../components/Field";
+import Segmented from "../../components/Segmented";
+import { apiJson, apiJsonCached } from "../../lib/api";
 import type { AdminMe, TeamMember } from "../../lib/types";
 
 export default function TeamPage() {
@@ -10,13 +11,14 @@ export default function TeamPage() {
   const [items, setItems] = useState<TeamMember[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [newRole, setNewRole] = useState<"normal_admin" | "super_admin">("normal_admin");
 
   const canCreate = me?.role === "super_admin";
 
   async function refresh() {
     setErr(null);
     try {
-      const [m, t] = await Promise.all([apiJson<AdminMe>("/api/admin/me"), apiJson<TeamMember[]>("/api/admin/team")]);
+      const [m, t] = await Promise.all([apiJsonCached<AdminMe>("/api/admin/me", 10000), apiJsonCached<TeamMember[]>("/api/admin/team", 10000)]);
       if (!Array.isArray(t)) throw new Error("团队列表返回格式错误");
       setMe(m);
       setItems(t);
@@ -36,7 +38,7 @@ export default function TeamPage() {
           <div className="text-2xl font-black">团队管理</div>
           <div className="mt-1 text-sm text-gray-600">仅超级管理员可新增管理员账号</div>
         </div>
-        {canCreate ? <Button onClick={() => setModalOpen(true)}>新增管理员</Button> : <div />}
+        {canCreate ? <Button onClick={() => { setNewRole("normal_admin"); setModalOpen(true); }}>新增管理员</Button> : <div />}
       </div>
 
       {err && <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-800">{err}</div>}
@@ -115,10 +117,16 @@ export default function TeamPage() {
                 </div>
                 <div>
                   <Label>角色</Label>
-                  <Select name="role" defaultValue="normal_admin">
-                    <option value="normal_admin">普通管理员</option>
-                    <option value="super_admin">超级管理员</option>
-                  </Select>
+                  <input type="hidden" name="role" value={newRole} />
+                  <Segmented
+                    size="sm"
+                    value={newRole}
+                    options={[
+                      { value: "normal_admin", label: "?????" },
+                      { value: "super_admin", label: "?????" }
+                    ]}
+                    onChange={(v: any) => setNewRole(v)}
+                  />
                 </div>
               </div>
 
