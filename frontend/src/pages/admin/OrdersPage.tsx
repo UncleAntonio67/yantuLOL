@@ -4,6 +4,7 @@ import Card from "../../components/Card";
 import Pagination from "../../components/Pagination";
 import { Input, Label, Select } from "../../components/Field";
 import { apiJson } from "../../lib/api";
+import { toast } from "../../lib/toast";
 import type { DeliverResponse, Order, OrderPage, Product, SendEmailResponse, TeamMember } from "../../lib/types";
 
 function ensureDisclaimer(text: string, disclaimer: string): string {
@@ -35,8 +36,11 @@ function shortId(id: string) {
 async function safeCopy(text: string) {
   try {
     await navigator.clipboard.writeText(text);
+    toast.success("已复制");
+    return true;
   } catch {
-    // ignore
+    toast.error("复制失败：浏览器可能禁止了剪贴板权限");
+    return false;
   }
 }
 
@@ -145,8 +149,9 @@ export default function OrdersPage() {
     if (!confirm("确认已收货并开放下载？确认后将计入营收。")) return;
     setErr(null);
     try {
-      await apiJson(`/api/admin/orders/${orderId}/confirm`, { method: "POST" });
-      await loadOrders();
+      const updated = await apiJson<Order>(`/api/admin/orders/${orderId}/confirm`, { method: "POST" });
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updated } : o)));
+      toast.success("已确认收货");
     } catch (ex: any) {
       setErr(ex?.message || "确认失败");
     }
@@ -157,7 +162,8 @@ export default function OrdersPage() {
     setErr(null);
     try {
       await apiJson(`/api/admin/orders/${orderId}/refund`, { method: "POST" });
-      await loadOrders();
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: "refunded", refunded_at: new Date().toISOString() } : o)));
+      toast.success("已退款吊销");
     } catch (ex: any) {
       setErr(ex?.message || "退款失败");
     }
@@ -168,9 +174,9 @@ export default function OrdersPage() {
     try {
       const r = await apiJson<ResetResult>(`/api/admin/orders/${orderId}/reset-password`, { method: "POST" });
       setResetRes(r);
-      await loadOrders();
-      // Password is only shown once, so help operator copy immediately.
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, password_last4: r.password_last4 } : o)));
       await safeCopy(r.password);
+      toast.info("新密码仅显示一次，请立即发送给买家");
     } catch (ex: any) {
       setErr(ex?.message || "重置失败");
     }
@@ -454,12 +460,13 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {loading ? (
+      {orders.length === 0 && loading ? (
         <div className="mt-4 text-sm text-gray-600">加载中...</div>
       ) : orders.length === 0 ? (
         <div className="mt-4 text-sm text-gray-600">暂无订单</div>
       ) : (
         <div className="mt-4 space-y-3">
+          {loading && <div className="text-[11px] text-gray-500">加载中...</div>}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full table-auto text-left text-sm min-w-[980px]">
               <thead className="text-xs text-gray-500">

@@ -19,3 +19,6 @@ __uvicorn_*.txt
 
 *.log
 *.tsbuildinfo
+
+.gcloud/
+

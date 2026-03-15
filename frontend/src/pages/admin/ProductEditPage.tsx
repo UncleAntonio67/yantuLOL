@@ -2,8 +2,10 @@
 import { useNavigate, useParams } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
+import FilePicker from "../../components/FilePicker";
 import { Input, Label, Textarea } from "../../components/Field";
 import { apiForm, apiJson } from "../../lib/api";
+import { toast } from "../../lib/toast";
 import type { AdminMe, Product, ProductAttachment, ProductDetail } from "../../lib/types";
 
 export default function ProductEditPage() {
@@ -53,7 +55,7 @@ export default function ProductEditPage() {
     return (
       <div className="hidden md:block">
         <div className="text-2xl font-black">编辑商品</div>
-        <div className="mt-1 text-sm text-gray-600">建议将删除操作放在商品列表中，避免误操作</div>
+        <div className="mt-1 text-sm text-gray-600">删除操作已从本页移除，请在商品列表中删除</div>
       </div>
     );
   }, []);
@@ -119,7 +121,7 @@ export default function ProductEditPage() {
                   if (clearCover) patch.cover_image = null;
                   else if (coverUrl) patch.cover_image = coverUrl;
 
-                  const updated = await apiJson<Product>(`/api/admin/products/${detail.id}`, {
+                  await apiJson<Product>(`/api/admin/products/${detail.id}`, {
                     method: "PUT",
                     body: JSON.stringify(patch)
                   });
@@ -130,6 +132,7 @@ export default function ProductEditPage() {
                     await apiForm<Product>(`/api/admin/products/${detail.id}/cover-image`, imgFd);
                   }
 
+                  toast.success("已保存");
                   await reload();
                 } catch (ex: any) {
                   setErr(ex?.message || "保存失败");
@@ -167,25 +170,23 @@ export default function ProductEditPage() {
               <div className="rounded-2xl border border-gray-100 bg-white/70 p-4 space-y-3">
                 <div className="text-xs font-semibold tracking-wide text-gray-700">封面图片</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <Label>上传封面</Label>
-                    <input
-                      name="cover_image_file"
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      className="w-full text-sm"
-                      onChange={(e) => {
-                        const f = e.currentTarget.files?.[0];
-                        if (!f) {
-                          setCoverPreviewUrl(null);
-                          return;
-                        }
-                        const url = URL.createObjectURL(f);
-                        setCoverPreviewUrl(url);
-                      }}
-                    />
-                    <div className="mt-1 text-xs text-gray-500">支持 png/jpg/webp。</div>
-                  </div>
+                  <FilePicker
+                    name="cover_image_file"
+                    accept="image/png,image/jpeg,image/webp"
+                    multiple={false}
+                    required={false}
+                    label="上传封面"
+                    hint="支持 png/jpg/webp。"
+                    onFilesChange={(files) => {
+                      const f = files[0];
+                      if (!f) {
+                        setCoverPreviewUrl(null);
+                        return;
+                      }
+                      const url = URL.createObjectURL(f);
+                      setCoverPreviewUrl(url);
+                    }}
+                  />
                   <div>
                     <Label>封面 URL (备选)</Label>
                     <Input name="cover_image" defaultValue={detail.cover_image || ""} placeholder="例如 https://.../cover.png" />
@@ -243,6 +244,7 @@ export default function ProductEditPage() {
                             setAttBusy(true);
                             try {
                               await apiJson(`/api/admin/products/${detail.id}/attachments/${a.id}`, { method: "DELETE" });
+                              toast.success("已删除附件");
                               await reload();
                             } catch (ex: any) {
                               setErr(ex?.message || "删除失败");
@@ -259,14 +261,14 @@ export default function ProductEditPage() {
               )}
 
               <div>
-                <Label>追加附件</Label>
-                <input
-                  type="file"
+                <FilePicker
+                  name="__unused__"
                   accept="application/pdf"
                   multiple
-                  className="w-full text-sm"
-                  onChange={async (e) => {
-                    const files = Array.from(e.currentTarget.files || []);
+                  required={false}
+                  label="追加附件"
+                  hint="仅支持 PDF。上传后买家阅读页可切换查看多个文件。"
+                  onFilesChange={async (files) => {
                     if (!files.length) return;
                     setErr(null);
                     setAttBusy(true);
@@ -274,16 +276,15 @@ export default function ProductEditPage() {
                       const fd = new FormData();
                       for (const f of files) fd.append("attachments", f);
                       await apiForm(`/api/admin/products/${detail.id}/attachments`, fd);
+                      toast.success("附件已上传");
                       await reload();
                     } catch (ex: any) {
                       setErr(ex?.message || "上传失败");
                     } finally {
                       setAttBusy(false);
-                      e.currentTarget.value = "";
                     }
                   }}
                 />
-                <div className="mt-1 text-xs text-gray-500">上传后买家阅读页可切换查看多个文件。</div>
               </div>
             </div>
           </Card>

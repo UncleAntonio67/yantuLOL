@@ -14,6 +14,8 @@ import * as pdfjsLib from "pdfjs-dist";
 function normalizeViewerError(msg: string) {
   const m = String(msg || "").trim();
   if (!m) return "加载失败";
+  if (m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("网络")) return "网络错误，请稍后重试";
+  if (m.startsWith("HTTP 5")) return `服务暂时不可用 (${m})`;
   if (m.includes("文件尚未上传")) return "该商品文件尚未上传，请联系管理员处理。";
   if (m.includes("文件不存在")) return "文件不存在或已被删除，请联系管理员重新上传。";
   if (m.includes("没有可阅读的文件")) return "该商品暂无可阅读的文件，请联系管理员上传 PDF。";
@@ -34,11 +36,30 @@ export default function ViewerPage() {
   const [pdfBuf, setPdfBuf] = useState<ArrayBuffer | null>(null);
   const [rendering, setRendering] = useState(false);
 
+  const pdfCacheRef = useRef<Map<string, ArrayBuffer>>(new Map());
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const watermarkHint = useMemo(() => {
     return orderId ? `订单 ${orderId} 的专属资料` : "专属资料";
   }, [orderId]);
+
+  useEffect(() => {
+    // Clear cache when viewer changes.
+    pdfCacheRef.current.clear();
+  }, [viewerToken]);
+
+  async function loadPdf(attId: string | null) {
+    if (!viewerToken) return;
+    const key = attId || "__default__";
+    const cached = pdfCacheRef.current.get(key);
+    if (cached) {
+      setPdfBuf(cached);
+      return;
+    }
+    const buf = await fetchViewerPdf(viewerToken, attId || undefined);
+    pdfCacheRef.current.set(key, buf);
+    setPdfBuf(buf);
+  }
 
   // Progressive rendering: render pages lazily when they enter viewport.
   useEffect(() => {
@@ -67,7 +88,6 @@ export default function ViewerPage() {
       const numPages = Number(pdf.numPages || 0);
       if (!numPages) throw new Error("无可渲染页面");
 
-      // Compute a scale that fits the container width.
       const first = await pdf.getPage(1);
       const vp1 = first.getViewport({ scale: 1 });
       const cw = Math.max(320, container.clientWidth || window.innerWidth || 1024);
@@ -146,7 +166,6 @@ export default function ViewerPage() {
         io.observe(ph);
       }
 
-      // Kick off first page immediately.
       await ensureRender(1);
     })()
       .catch((e) => {
@@ -196,15 +215,10 @@ export default function ViewerPage() {
         e.stopPropagation();
       }
     };
-    const onBeforePrint = (e: Event) => {
-      e.preventDefault?.();
-    };
 
     window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("beforeprint", onBeforePrint as any);
     return () => {
       window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("beforeprint", onBeforePrint as any);
       style.remove();
     };
   }, [viewerToken]);
@@ -217,8 +231,7 @@ export default function ViewerPage() {
       setMeta(m);
       const attId = activeAttachmentId || m.attachments?.[0]?.id || null;
       setActiveAttachmentId(attId);
-      const buf = await fetchViewerPdf(viewerToken, attId || undefined);
-      setPdfBuf(buf);
+      await loadPdf(attId);
     } catch (ex: any) {
       setErr(normalizeViewerError(ex?.message || "刷新失败"));
     }
@@ -279,8 +292,7 @@ export default function ViewerPage() {
                     setMeta(m);
                     const first = m.attachments?.[0]?.id || null;
                     setActiveAttachmentId(first);
-                    const buf = await fetchViewerPdf(res.viewer_token, first || undefined);
-                    setPdfBuf(buf);
+                    await loadPdf(first);
                   } catch (ex: any) {
                     setErr(normalizeViewerError(ex?.message || "验证失败"));
                   } finally {
@@ -294,13 +306,7 @@ export default function ViewerPage() {
                 </div>
                 <div>
                   <Label>访问密码</Label>
-                  <Input
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="请输入管理员提供的密码"
-                    required
-                    autoComplete="off"
-                  />
+                  <Input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="请输入管理员提供的密码" required autoComplete="off" />
                 </div>
                 {err && <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{err}</div>}
                 <Button type="submit" disabled={busy} className="w-full">
@@ -338,8 +344,7 @@ export default function ViewerPage() {
                           setErr(null);
                           setActiveAttachmentId(a.id);
                           try {
-                            const buf = await fetchViewerPdf(viewerToken, a.id);
-                            setPdfBuf(buf);
+                            await loadPdf(a.id);
                           } catch (ex: any) {
                             setErr(normalizeViewerError(ex?.message || "加载失败"));
                           }
