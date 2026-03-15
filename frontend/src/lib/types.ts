@@ -134,3 +134,30 @@ export type ViewerMeta = {
   download_password: string | null;
   attachments: ViewerAttachment[];
 };
+
+
+export type SystemR2PrefixUsage = { prefix: string; objects: number; bytes: number; truncated: boolean };
+
+export type SystemOverview = {
+  environment: string;
+  server_time: string;
+  db: {
+    ok: boolean;
+    latency_ms: number;
+    products: number;
+    orders: number;
+    active_orders: number;
+    confirmed_orders: number;
+    refunded_orders: number;
+    confirmed_revenue: string;
+    views_total: number;
+    orders_viewed_24h: number;
+    last_view_at: string | null;
+  };
+  r2: {
+    enabled: boolean;
+    bucket: string | null;
+    prefixes: SystemR2PrefixUsage[];
+  };
+};
+

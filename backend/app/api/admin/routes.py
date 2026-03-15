@@ -1,10 +1,11 @@
 ﻿from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 import math
 from pathlib import Path
 import secrets
+import time as time_mod
 import shutil
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.storage import storage
+from app.storage import r2_storage
 from app.core.security import create_admin_access_token, decode_token, hash_password, verify_password
 from app.db.session import get_db
 from app.models.models import DeliveryMethod, Order, OrderStatus, Product, ProductAttachment, Role, TeamMember
@@ -39,6 +41,7 @@ from app.schemas.schemas import (
     SendEmailResponse,
     TeamMemberCreate,
     TeamMemberOut,
+    SystemOverviewResponse,
 )
 from app.services.emailer import send_delivery_email
 from app.utils.public_url import public_frontend_base_url
@@ -765,8 +768,8 @@ def deliver_order(
 def list_orders(
     buyer_id: str | None = None,
     status_filter: str | None = None,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
     _: TeamMember = Depends(_require_admin),
     db: Session = Depends(get_db),
 ):
@@ -819,9 +822,11 @@ def list_orders(
 @router.get("/orders/paged", response_model=OrderPage)
 def list_orders_paged(
     buyer_id: str | None = None,
+    product_id: str | None = None,
+    operator_id: str | None = None,
     status_filter: str | None = None,
-    created_from: datetime | None = None,
-    created_to: datetime | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
     _: TeamMember = Depends(_require_admin),
@@ -837,6 +842,12 @@ def list_orders_paged(
     if buyer_id:
         count_stmt = count_stmt.where(Order.buyer_id.contains(buyer_id))
         data_stmt = data_stmt.where(Order.buyer_id.contains(buyer_id))
+    if product_id:
+        count_stmt = count_stmt.where(Order.product_id == product_id)
+        data_stmt = data_stmt.where(Order.product_id == product_id)
+    if operator_id:
+        count_stmt = count_stmt.where(Order.operator_id == operator_id)
+        data_stmt = data_stmt.where(Order.operator_id == operator_id)
     if status_filter:
         try:
             st = OrderStatus(status_filter)
@@ -846,14 +857,13 @@ def list_orders_paged(
         data_stmt = data_stmt.where(Order.status == st)
 
     if created_from:
-        cf = created_from if created_from.tzinfo else created_from.replace(tzinfo=timezone.utc)
+        cf = datetime.combine(created_from, time.min).replace(tzinfo=timezone.utc)
         count_stmt = count_stmt.where(Order.created_at >= cf)
         data_stmt = data_stmt.where(Order.created_at >= cf)
     if created_to:
-        ct = created_to if created_to.tzinfo else created_to.replace(tzinfo=timezone.utc)
-        count_stmt = count_stmt.where(Order.created_at <= ct)
-        data_stmt = data_stmt.where(Order.created_at <= ct)
-
+        ct = datetime.combine(created_to, time.min).replace(tzinfo=timezone.utc) + timedelta(days=1)
+        count_stmt = count_stmt.where(Order.created_at < ct)
+        data_stmt = data_stmt.where(Order.created_at < ct)
     total = int(db.scalar(count_stmt) or 0)
     total_pages = max(1, math.ceil(total / page_size)) if total else 1
     offset = (page - 1) * page_size
@@ -1105,3 +1115,120 @@ def dashboard_analytics(_: TeamMember = Depends(_require_admin), db: Session = D
 
 
 
+
+@router.get("/system/overview", response_model=SystemOverviewResponse)
+def system_overview(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_db)):
+    settings = get_settings()
+
+    # DB health
+    t0 = time_mod.perf_counter()
+    ok = True
+    try:
+        db.execute(select(1)).first()
+    except Exception:
+        ok = False
+    latency_ms = int((time_mod.perf_counter() - t0) * 1000)
+
+    products = int(db.scalar(select(func.count()).select_from(Product)) or 0)
+    orders = int(db.scalar(select(func.count()).select_from(Order)) or 0)
+    active_orders = int(db.scalar(select(func.count()).select_from(Order).where(Order.status == OrderStatus.active)) or 0)
+    confirmed_orders = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Order)
+            .where(Order.status == OrderStatus.active)
+            .where(Order.confirmed_at.is_not(None))
+        )
+        or 0
+    )
+    refunded_orders = int(db.scalar(select(func.count()).select_from(Order).where(Order.status == OrderStatus.refunded)) or 0)
+    confirmed_revenue_raw = (
+        db.scalar(
+            select(func.coalesce(func.sum(Order.unit_price), 0))
+            .select_from(Order)
+            .where(Order.status == OrderStatus.active)
+            .where(Order.confirmed_at.is_not(None))
+        )
+        or 0
+    )
+    confirmed_revenue = Decimal(str(confirmed_revenue_raw))
+
+    views_total = int(db.scalar(select(func.coalesce(func.sum(Order.view_count), 0)).select_from(Order)) or 0)
+    now = datetime.now(timezone.utc)
+    orders_viewed_24h = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Order)
+            .where(Order.last_view_at.is_not(None))
+            .where(Order.last_view_at >= (now - timedelta(hours=24)))
+        )
+        or 0
+    )
+    last_view_at = db.scalar(select(func.max(Order.last_view_at)).select_from(Order))
+
+    # R2 usage (best-effort, approximate)
+    r2_enabled = bool(storage.r2_enabled())
+    bucket = (settings.r2_bucket_name or settings.r2_bucket) if r2_enabled else None
+    prefixes: list[dict] = []
+
+    if r2_enabled and bucket:
+        try:
+            client = r2_storage.get_s3_client()
+
+            def scan_prefix(prefix: str, max_objects: int = 2000) -> dict:
+                total_objects = 0
+                total_bytes = 0
+                token: str | None = None
+                truncated = False
+                while True:
+                    kwargs = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": 1000}
+                    if token:
+                        kwargs["ContinuationToken"] = token
+                    resp = client.list_objects_v2(**kwargs)
+                    contents = resp.get("Contents") or []
+                    for obj in contents:
+                        total_objects += 1
+                        total_bytes += int(obj.get("Size") or 0)
+                        if total_objects >= max_objects:
+                            truncated = True
+                            break
+                    if truncated:
+                        break
+                    if not resp.get("IsTruncated"):
+                        break
+                    token = resp.get("NextContinuationToken")
+                return {
+                    "prefix": prefix,
+                    "objects": int(total_objects),
+                    "bytes": int(total_bytes),
+                    "truncated": bool(truncated),
+                }
+
+            prefixes.append(scan_prefix("source_pdfs/"))
+            prefixes.append(scan_prefix("product_images/"))
+        except Exception:
+            # Keep the endpoint stable even if R2 listing fails.
+            prefixes = []
+
+    return SystemOverviewResponse(
+        environment=settings.environment,
+        server_time=now,
+        db={
+            "ok": ok,
+            "latency_ms": latency_ms,
+            "products": products,
+            "orders": orders,
+            "active_orders": active_orders,
+            "confirmed_orders": confirmed_orders,
+            "refunded_orders": refunded_orders,
+            "confirmed_revenue": confirmed_revenue,
+            "views_total": views_total,
+            "orders_viewed_24h": orders_viewed_24h,
+            "last_view_at": last_view_at,
+        },
+        r2={
+            "enabled": r2_enabled,
+            "bucket": bucket,
+            "prefixes": prefixes,
+        },
+    )

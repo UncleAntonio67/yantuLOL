@@ -16,8 +16,9 @@ function normalizeViewerError(msg: string) {
   if (!m) return "加载失败";
   if (m.includes("文件尚未上传")) return "该商品文件尚未上传，请联系管理员处理。";
   if (m.includes("文件不存在")) return "文件不存在或已被删除，请联系管理员重新上传。";
+  if (m.includes("没有可阅读的文件")) return "该商品暂无可阅读的文件，请联系管理员上传 PDF。";
   if (m.includes("Invalid password")) return "密码错误";
-  if (m.includes("Invalid token")) return "访问已过期，请重新验证";
+  if (m.includes("Invalid token") || m.includes("Token expired")) return "访问已过期，请重新验证";
   return m;
 }
 
@@ -39,43 +40,141 @@ export default function ViewerPage() {
     return orderId ? `订单 ${orderId} 的专属资料` : "专属资料";
   }, [orderId]);
 
-  const renderScale = useMemo(() => {
-    const w = typeof window === "undefined" ? 1024 : window.innerWidth;
-    return w < 640 ? 1.05 : 1.35;
-  }, []);
-
+  // Progressive rendering: render pages lazily when they enter viewport.
   useEffect(() => {
     if (!pdfBuf || !containerRef.current) return;
 
+    let cancelled = false;
+    let io: IntersectionObserver | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let pdf: any = null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const getDocument = (pdfjsLib as any).getDocument;
+
+    const container = containerRef.current;
+    container.innerHTML = "";
+    setRendering(true);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loadingTask: any = getDocument({ data: pdfBuf });
+
     (async () => {
-      setRendering(true);
-      const container = containerRef.current!;
-      container.innerHTML = "";
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const loadingTask = (pdfjsLib as any).getDocument({ data: pdfBuf });
-      const pdf = await loadingTask.promise;
+      pdf = await loadingTask.promise;
+      if (cancelled) return;
 
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: renderScale });
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        canvas.className = "w-full rounded-xl border border-gray-100 bg-white";
+      const numPages = Number(pdf.numPages || 0);
+      if (!numPages) throw new Error("无可渲染页面");
 
-        const ctx = canvas.getContext("2d")!;
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        container.appendChild(canvas);
+      // Compute a scale that fits the container width.
+      const first = await pdf.getPage(1);
+      const vp1 = first.getViewport({ scale: 1 });
+      const cw = Math.max(320, container.clientWidth || window.innerWidth || 1024);
+      const fitScale = Math.min(1.55, Math.max(0.9, (cw / vp1.width) * 1.02));
+
+      const rendered = new Set<number>();
+      const inflight = new Map<number, Promise<void>>();
+      const placeholderHeight = Math.max(240, Math.floor(vp1.height * fitScale));
+
+      io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            const el = e.target as HTMLDivElement;
+            const pageNo = Number(el.dataset.page || "0");
+            if (!e.isIntersecting || !pageNo) continue;
+            void ensureRender(pageNo);
+          }
+        },
+        { root: null, rootMargin: "800px 0px" }
+      );
+
+      function mkPlaceholder(pageNo: number) {
+        const wrap = document.createElement("div");
+        wrap.dataset.page = String(pageNo);
+        wrap.className = "rounded-xl border border-gray-100 bg-white overflow-hidden";
+        wrap.style.minHeight = `${placeholderHeight}px`;
+
+        const hint = document.createElement("div");
+        hint.className = "px-3 py-2 text-[11px] text-gray-500";
+        hint.textContent = `第 ${pageNo} 页`;
+        wrap.appendChild(hint);
+        return wrap;
       }
+
+      async function ensureRender(pageNo: number) {
+        if (cancelled) return;
+        if (rendered.has(pageNo)) return;
+        const pending = inflight.get(pageNo);
+        if (pending) return pending;
+
+        const p = (async () => {
+          try {
+            const target = container.querySelector(`div[data-page=\"${pageNo}\"]`) as HTMLDivElement | null;
+            if (!target || cancelled) return;
+
+            const page = await pdf.getPage(pageNo);
+            if (cancelled) return;
+
+            const viewport = page.getViewport({ scale: fitScale });
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.floor(viewport.width);
+            canvas.height = Math.floor(viewport.height);
+            canvas.className = "w-full bg-white";
+
+            const ctx = canvas.getContext("2d")!;
+            await page.render({ canvasContext: ctx, viewport }).promise;
+
+            if (cancelled) return;
+            target.innerHTML = "";
+            target.appendChild(canvas);
+            rendered.add(pageNo);
+
+            if (pageNo === 1) setRendering(false);
+          } finally {
+            inflight.delete(pageNo);
+          }
+        })();
+
+        inflight.set(pageNo, p);
+        return p;
+      }
+
+      for (let i = 1; i <= numPages; i++) {
+        const ph = mkPlaceholder(i);
+        container.appendChild(ph);
+        io.observe(ph);
+      }
+
+      // Kick off first page immediately.
+      await ensureRender(1);
     })()
       .catch((e) => {
         setErr(normalizeViewerError(String(e?.message || e)));
       })
       .finally(() => {
-        setRendering(false);
+        if (!cancelled) setRendering(false);
       });
-  }, [pdfBuf, renderScale]);
+
+    return () => {
+      cancelled = true;
+      try {
+        io?.disconnect();
+      } catch {
+        // ignore
+      }
+      try {
+        pdf?.destroy?.();
+      } catch {
+        // ignore
+      }
+      try {
+        loadingTask.destroy?.();
+      } catch {
+        // ignore
+      }
+    };
+  }, [pdfBuf]);
 
   // Best-effort: block common download/print shortcuts, and make printing blank.
   useEffect(() => {
@@ -218,8 +317,7 @@ export default function ViewerPage() {
               <div className="glass rounded-2xl p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="text-xs text-gray-600">
-                    {meta.product_name} |{" "}
-                    {meta.is_confirmed ? "已确认收货，可下载" : "未确认收货，仅可在线查看"}
+                    {meta.product_name} | {meta.is_confirmed ? "已确认收货，可下载" : "未确认收货，仅可在线查看"}
                   </div>
                   <Button tone="ghost" type="button" onClick={() => void refreshViewer()}>
                     刷新
@@ -233,9 +331,7 @@ export default function ViewerPage() {
                         key={a.id}
                         className={[
                           "rounded-xl px-3 py-2 text-xs font-semibold border transition",
-                          activeAttachmentId === a.id
-                            ? "bg-brand-50 text-brand-700 border-brand-200"
-                            : "bg-white/70 text-gray-700 border-gray-200 hover:bg-gray-50"
+                          activeAttachmentId === a.id ? "bg-brand-50 text-brand-700 border-brand-200" : "bg-white/70 text-gray-700 border-gray-200 hover:bg-gray-50"
                         ].join(" ")}
                         onClick={async () => {
                           if (!viewerToken) return;
@@ -259,9 +355,7 @@ export default function ViewerPage() {
                 {meta.can_download ? (
                   <div className="mt-4 rounded-2xl border border-brand-200 bg-brand-50 p-4">
                     <div className="text-xs font-semibold tracking-wide text-gray-700">下载说明</div>
-                    <div className="mt-1 text-xs text-gray-600 leading-6">
-                      下载文件已加密且写入水印。打开密码与访问密码一致。
-                    </div>
+                    <div className="mt-1 text-xs text-gray-600 leading-6">下载文件已加密且写入水印。打开密码与访问密码一致。</div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {meta.attachments.map((a) => (
                         <button
@@ -285,9 +379,7 @@ export default function ViewerPage() {
             )}
 
             <div className="glass rounded-2xl p-4" onContextMenu={(e) => e.preventDefault()} tabIndex={0}>
-              <div className="mb-3 text-xs text-gray-600">
-                已验证。若退款或密码重置，页面将无法继续加载。
-              </div>
+              <div className="mb-3 text-xs text-gray-600">已验证。若退款或密码重置，页面将无法继续加载。</div>
               {rendering && <div className="mb-3 text-xs text-gray-600">渲染中，请稍候...</div>}
               <div ref={containerRef} className="space-y-4 select-none" />
             </div>

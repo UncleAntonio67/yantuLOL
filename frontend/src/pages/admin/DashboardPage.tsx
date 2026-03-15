@@ -86,7 +86,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between">
-        <div>
+        <div className="hidden md:block">
           <div className="text-2xl font-black">数据总览</div>
           <div className="mt-1 text-sm text-gray-600">方案 B：在线阅读链接 + 动态水印 + 退款即时吊销</div>
         </div>

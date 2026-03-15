@@ -219,3 +219,38 @@ class ViewerMetaResponse(BaseModel):
     download_password: str | None = None
     attachments: list[ViewerAttachmentOut]
 
+
+
+class SystemR2PrefixUsage(BaseModel):
+    prefix: str
+    objects: int
+    bytes: int
+    truncated: bool
+
+
+class SystemDbOverview(BaseModel):
+    ok: bool
+    latency_ms: int
+    products: int
+    orders: int
+    active_orders: int
+    confirmed_orders: int
+    refunded_orders: int
+    confirmed_revenue: Decimal
+    views_total: int
+    orders_viewed_24h: int
+    last_view_at: datetime | None
+
+
+class SystemR2Overview(BaseModel):
+    enabled: bool
+    bucket: str | None
+    prefixes: list[SystemR2PrefixUsage]
+
+
+class SystemOverviewResponse(BaseModel):
+    environment: str
+    server_time: datetime
+    db: SystemDbOverview
+    r2: SystemR2Overview
+

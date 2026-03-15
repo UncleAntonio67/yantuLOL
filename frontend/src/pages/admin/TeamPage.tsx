@@ -32,7 +32,7 @@ export default function TeamPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between">
-        <div>
+        <div className="hidden md:block">
           <div className="text-2xl font-black">团队管理</div>
           <div className="mt-1 text-sm text-gray-600">仅超级管理员可新增管理员账号</div>
         </div>

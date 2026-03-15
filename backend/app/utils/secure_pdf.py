@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import fitz  # PyMuPDF
 
@@ -16,7 +16,7 @@ def watermark_encrypt_pdf_bytes(
 
     Notes:
     - PDF encryption is not a perfect DRM solution, but it is a useful friction point.
-    - We keep the watermark stable (no timestamp) so it is reproducible.
+    - The watermark is stable (no timestamp) so it is reproducible.
     """
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
@@ -34,8 +34,8 @@ def watermark_encrypt_pdf_bytes(
     for page in doc:
         rect = page.rect
         w, h = rect.width, rect.height
-        step = max(180, int(min(w, h) / 3))
-        fontsize = max(10, int(min(w, h) / 35))
+        step = max(150, int(min(w, h) / 3.0))
+        fontsize = max(12, int(min(w, h) / 26))
         for x in range(0, int(w) + step, step):
             for y in range(0, int(h) + step, step):
                 origin = fitz.Point(x, y)
@@ -44,8 +44,8 @@ def watermark_encrypt_pdf_bytes(
                     watermark_text,
                     fontsize=fontsize,
                     fontname=fontname,
-                    fill=(0.2, 0.2, 0.2),
-                    fill_opacity=0.12,
+                    fill=(0.12, 0.12, 0.12),
+                    fill_opacity=0.20,
                     morph=(origin, wm_matrix),
                     overlay=True,
                 )
@@ -63,4 +63,3 @@ def watermark_encrypt_pdf_bytes(
         return out
     finally:
         doc.close()
-

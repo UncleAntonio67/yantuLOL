@@ -1,4 +1,4 @@
-import { clearAdminToken, getAdminToken } from "./storage";
+﻿import { clearAdminToken, getAdminToken } from "./storage";
 import type { ViewerMeta } from "./types";
 
 export type ApiError = {

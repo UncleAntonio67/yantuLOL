@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import fitz  # PyMuPDF
 
@@ -23,10 +23,11 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
     for page in doc:
         rect = page.rect
         w, h = rect.width, rect.height
-        step = max(180, int(min(w, h) / 3))
-        fontsize = max(10, int(min(w, h) / 35))
 
-        # 45-degree tiled watermark
+        # Stronger, more visible watermark for on-screen reading.
+        step = max(120, int(min(w, h) / 2.9))
+        fontsize = max(14, int(min(w, h) / 22))
+
         for x in range(0, int(w) + step, step):
             for y in range(0, int(h) + step, step):
                 origin = fitz.Point(x, y)
@@ -35,8 +36,8 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                     watermark_text,
                     fontsize=fontsize,
                     fontname=fontname,
-                    fill=(0.2, 0.2, 0.2),
-                    fill_opacity=0.12,
+                    fill=(0.10, 0.10, 0.10),
+                    fill_opacity=0.32,
                     morph=(origin, wm_matrix),
                     overlay=True,
                 )

@@ -84,8 +84,11 @@ export default function AdminShell() {
 
   const breadcrumb = useMemo(() => {
     if (loc.pathname.startsWith("/admin/orders")) return "发货与售后";
+    if (loc.pathname.startsWith("/admin/products/new")) return "新增商品";
+    if (loc.pathname.startsWith("/admin/products/") && loc.pathname.endsWith("/edit")) return "编辑商品";
     if (loc.pathname.startsWith("/admin/products")) return "商品库管理";
     if (loc.pathname.startsWith("/admin/team")) return "团队管理";
+    if (loc.pathname.startsWith("/admin/system")) return "系统监控";
     return "数据总览";
   }, [loc.pathname]);
 
@@ -124,6 +127,9 @@ export default function AdminShell() {
           </NavLink>
           <NavLink to="/admin/team" className={({ isActive }) => itemClass(isActive)}>
             团队管理
+          </NavLink>
+          <NavLink to="/admin/system" className={({ isActive }) => itemClass(isActive)}>
+            系统监控
           </NavLink>
         </nav>
 
