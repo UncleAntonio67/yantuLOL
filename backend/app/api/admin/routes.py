@@ -8,6 +8,7 @@ import secrets
 import time as time_mod
 import shutil
 from uuid import uuid4
+import fitz  # PyMuPDF
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -193,10 +194,36 @@ def _validate_pdf_upload(upload: UploadFile) -> None:
     filename = (upload.filename or "").lower()
     if not filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF is supported")
+
+    # Fast header check first.
     head = upload.file.read(5)
     upload.file.seek(0)
     if head != b"%PDF-":
         raise HTTPException(status_code=400, detail="Invalid PDF header")
+
+    # Ensure the PDF is readable and not already encrypted.
+    data = upload.file.read()
+    upload.file.seek(0)
+    doc = None
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+        if getattr(doc, "needs_pass", False):
+            raise HTTPException(status_code=400, detail="Encrypted PDF is not supported")
+        if int(getattr(doc, "page_count", 0) or 0) <= 0:
+            raise HTTPException(status_code=400, detail="Unreadable PDF file")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unreadable PDF file")
+    finally:
+        try:
+            doc.close()  # type: ignore[union-attr]
+        except Exception:
+            pass
+        try:
+            upload.file.seek(0)
+        except Exception:
+            pass
 
 
 @router.post("/login", response_model=LoginResponse)
