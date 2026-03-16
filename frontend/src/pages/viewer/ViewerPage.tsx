@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
@@ -15,13 +15,13 @@ import * as pdfjsLib from "pdfjs-dist";
 function normalizeViewerError(msg: string) {
   const m = String(msg || "").trim();
   if (!m) return "加载失败";
-  if (m.includes("Failed to fetch") || m.includes("NetworkError") || m.includes("网络")) return "网络错误，请稍后重试";
-  if (m.startsWith("HTTP 5")) return `服务暂时不可用 (${m})`;
-  if (m.includes("文件尚未上传")) return "该商品文件尚未上传，请联系管理员处理。";
-  if (m.includes("文件不存在")) return "文件不存在或已被删除，请联系管理员重新上传。";
-  if (m.includes("没有可阅读的文件")) return "该商品暂无可阅读的文件，请联系管理员上传 PDF。";
+  if (m.includes("Failed to fetch") || m.includes("NetworkError")) return "网络错误，请稍后重试";
+  if (m.startsWith("HTTP 5")) return `服务暂时不可用（${m}）`;
+  if (m.includes("file not found") || m.includes("not found")) return "文件不存在或已被删除，请联系管理员";
+  if (m.includes("No readable PDF")) return "该商品暂无可阅读的 PDF 文件，请联系管理员上传";
   if (m.includes("Invalid password")) return "密码错误";
   if (m.includes("Invalid token") || m.includes("Token expired")) return "访问已过期，请重新验证";
+  if (m.includes("Unexpected server response")) return "服务异常，请稍后再试";
   return m;
 }
 
@@ -85,11 +85,14 @@ export default function ViewerPage() {
       const first = await pdf.getPage(1);
       const vp1 = first.getViewport({ scale: 1 });
       const cw = Math.max(320, container.clientWidth || window.innerWidth || 1024);
-      const fitScale = Math.min(1.55, Math.max(0.9, (cw / vp1.width) * 1.02));
+      const fitScale = Math.min(1.25, Math.max(0.92, (cw / vp1.width) * 1.02));
+
+      // Improve clarity on high DPI screens, but cap for performance.
+      const dpr = Math.min(1.6, Math.max(1, window.devicePixelRatio || 1));
 
       const rendered = new Set<number>();
       const inflight = new Map<number, Promise<void>>();
-      const placeholderHeight = Math.max(160, Math.floor(vp1.height * fitScale * 0.6));
+      const placeholderHeight = Math.max(160, Math.floor(vp1.height * fitScale));
 
       io = new IntersectionObserver(
         (entries) => {
@@ -100,20 +103,26 @@ export default function ViewerPage() {
             void ensureRender(pageNo);
           }
         },
-        { root: null, rootMargin: "1200px 0px" }
+        { root: null, rootMargin: "900px 0px" }
       );
 
       function mkPlaceholder(pageNo: number) {
         const wrap = document.createElement("div");
         wrap.dataset.page = String(pageNo);
-        wrap.className = "rounded-xl border border-gray-100 bg-white overflow-hidden";
-        wrap.style.background = "linear-gradient(180deg, rgba(255,255,255,0.85), rgba(250,250,250,0.85))";
+        wrap.className = "rounded-xl border border-gray-100 bg-white/85 overflow-hidden";
         wrap.style.minHeight = `${placeholderHeight}px`;
 
-        const hint = document.createElement("div");
-        hint.className = "px-3 py-2 text-[11px] text-gray-500";
-        hint.textContent = `\u7b2c ${pageNo} \u9875`;
-        wrap.appendChild(hint);
+        const head = document.createElement("div");
+        head.className = "px-3 py-2 text-[11px] text-gray-500";
+        head.textContent = `第 ${pageNo} 页`;
+
+        const sk = document.createElement("div");
+        sk.className = "h-full w-full animate-pulse";
+        sk.style.minHeight = `${Math.max(120, Math.floor(placeholderHeight * 0.55))}px`;
+        sk.style.background = "linear-gradient(90deg, rgba(243,244,246,0.65), rgba(255,255,255,0.9), rgba(243,244,246,0.65))";
+
+        wrap.appendChild(head);
+        wrap.appendChild(sk);
         return wrap;
       }
 
@@ -125,27 +134,30 @@ export default function ViewerPage() {
 
         const p = (async () => {
           try {
-            const target = container.querySelector(`div[data-page="${pageNo}"]`) as HTMLDivElement | null;
+            const target = container.querySelector(`div[data-page=\"${pageNo}\"]`) as HTMLDivElement | null;
             if (!target || cancelled) return;
 
             const page = await pdf.getPage(pageNo);
             if (cancelled) return;
 
-            const viewport = page.getViewport({ scale: fitScale });
+            const cssViewport = page.getViewport({ scale: fitScale });
+            const renderViewport = page.getViewport({ scale: fitScale * dpr });
+
             const canvas = document.createElement("canvas");
-            canvas.width = Math.floor(viewport.width);
-            canvas.height = Math.floor(viewport.height);
-            canvas.className = "w-full bg-white";
+            canvas.width = Math.floor(renderViewport.width);
+            canvas.height = Math.floor(renderViewport.height);
             canvas.style.display = "block";
+            canvas.style.width = `${Math.floor(cssViewport.width)}px`;
+            canvas.style.height = `${Math.floor(cssViewport.height)}px`;
+            canvas.className = "max-w-full";
 
             const ctx = canvas.getContext("2d")!;
-            await page.render({ canvasContext: ctx, viewport }).promise;
+            await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;
 
             if (cancelled) return;
             target.innerHTML = "";
             target.appendChild(canvas);
             target.style.minHeight = "";
-            target.style.height = "";
             rendered.add(pageNo);
 
             if (pageNo === 1) setRendering(false);
@@ -169,7 +181,8 @@ export default function ViewerPage() {
       for (const ph of placeholders) io.observe(ph);
 
       await ensureRender(1);
-      if (numPages >= 2) await ensureRender(2);
+      if (numPages >= 2) void ensureRender(2);
+      if (numPages >= 3) void ensureRender(3);
     })()
       .catch((e) => {
         setErr(normalizeViewerError(String(e?.message || e)));
@@ -274,12 +287,12 @@ export default function ViewerPage() {
 
         {/* Only shown in print */}
         <div id="viewer-print-block" className="hidden">
-          <div className="p-6 text-sm text-gray-700">出于版权保护，打印已被禁用。</div>
+          <div className="p-6 text-sm text-gray-700">出于版权保护，打印已禁用。</div>
         </div>
 
         {!viewerToken ? (
           <div className="max-w-md">
-            <Card title="验证访问" subtitle="输入密码后开始在线阅读（退款后会立即失效）">
+            <Card title="验证访问" subtitle="输入密码后开始在线阅读（退款或重置密码会立刻失效）">
               <form
                 className="space-y-4"
                 onSubmit={async (e) => {
@@ -311,7 +324,10 @@ export default function ViewerPage() {
                 </div>
                 {err && <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{err}</div>}
                 <Button type="submit" disabled={busy} className="w-full">
-                  {busy ? "验证中..." : "开始阅读"}
+                  <span className="inline-flex items-center justify-center gap-2">
+                    {busy && <Spinner className="h-4 w-4 text-white" label="验证中" />}
+                    {busy ? "验证中" : "开始阅读"}
+                  </span>
                 </Button>
               </form>
             </Card>
@@ -324,7 +340,7 @@ export default function ViewerPage() {
               <div className="glass rounded-2xl p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="text-xs text-gray-600">
-                    {meta.product_name} | {meta.is_confirmed ? "已确认收货，可下载" : "未确认收货，仅可在线查看"}
+                    {meta.product_name} | {meta.is_confirmed ? "已确认收货，可下载" : "未确认收货，仅在线查看"}
                   </div>
                   <Button tone="ghost" type="button" onClick={() => void refreshViewer()}>
                     刷新
@@ -366,14 +382,17 @@ export default function ViewerPage() {
                           disabled={!!dlBusyId}
                           type="button"
                         >
-                          {dlBusyId === a.id ? "生成中..." : `下载: ${a.filename}`}
+                          <span className="inline-flex items-center gap-2">
+                            {dlBusyId === a.id && <Spinner className="h-4 w-4 text-white" label="生成中" />}
+                            {dlBusyId === a.id ? "生成中" : `下载: ${a.filename}`}
+                          </span>
                         </button>
                       ))}
                     </div>
                   </div>
                 ) : (
                   <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900 leading-6">
-                    下载暂未开放。需要管理员确认收货后，才会开放下载并计入营收。
+                    下载暂未开放。需管理员确认收货后才会开放下载并计入营收。
                   </div>
                 )}
               </div>
@@ -382,9 +401,9 @@ export default function ViewerPage() {
             <div className="glass rounded-2xl p-4" onContextMenu={(e) => e.preventDefault()} tabIndex={0}>
               <div className="mb-3 text-xs text-gray-600">已验证。若退款或密码重置，页面将无法继续加载。</div>
               {rendering && (
-                <div className="mb-3 flex items-center gap-2 text-xs text-gray-600">
-                  <Spinner className="h-4 w-4 text-gray-500" />
-                  <span>渲染中，请稍候...</span>
+                <div className="mb-3 flex items-center justify-center">
+                  <Spinner className="h-5 w-5 text-gray-500" label="渲染中" />
+                  <span className="sr-only">渲染中</span>
                 </div>
               )}
               <div ref={containerRef} className="space-y-2 select-none" />

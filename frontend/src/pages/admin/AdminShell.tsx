@@ -1,10 +1,11 @@
+﻿
 import React, { useEffect, useMemo, useState } from "react";
-import Button from "../../components/Button";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { apiJson } from "../../lib/api";
-import { Input, Label } from "../../components/Field";
-import { toast } from "../../lib/toast";
+import Button from "../../components/Button";
 import Spinner from "../../components/Spinner";
+import { Input, Label } from "../../components/Field";
+import { apiJson } from "../../lib/api";
+import { toast } from "../../lib/toast";
 import { ADMIN_TOKEN_CLEARED_EVENT, clearAdminToken, getAdminToken } from "../../lib/storage";
 import type { AdminMe } from "../../lib/types";
 
@@ -35,15 +36,20 @@ function itemClass(isActive: boolean) {
 }
 
 function roleText(role?: string) {
-  return role === "super_admin" ? "超级管理员" : "管理员";
+  if (role === "super_admin") return "超级管理员";
+  if (role) return "管理员";
+  return "-";
 }
 
 export default function AdminShell() {
   const nav = useNavigate();
   const loc = useLocation();
+
   const [me, setMe] = useState<AdminMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // change password dialog
   const [pwOpen, setPwOpen] = useState(false);
   const [pwBusy, setPwBusy] = useState(false);
   const [pwErr, setPwErr] = useState<string | null>(null);
@@ -108,10 +114,7 @@ export default function AdminShell() {
   }
 
   function Sidebar(props: { variant: "desktop" | "mobile" }) {
-    const cls =
-      props.variant === "desktop"
-        ? "glass rounded-2xl shadow-soft overflow-hidden h-fit"
-        : "h-full w-[280px] bg-white shadow-2xl";
+    const cls = props.variant === "desktop" ? "glass rounded-2xl shadow-soft overflow-hidden h-fit" : "h-full w-[280px] bg-white shadow-2xl";
 
     return (
       <aside className={[cls, "flex flex-col"].join(" ")}>
@@ -160,10 +163,10 @@ export default function AdminShell() {
                 setPwOpen(true);
               }}
             >
-              {"\u4fee\u6539\u5bc6\u7801"}
+              修改密码
             </button>
             <button className="text-xs font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={logout}>
-              {"\u9000\u51fa"}
+              退出
             </button>
           </div>
         </div>
@@ -174,7 +177,10 @@ export default function AdminShell() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="glass rounded-2xl px-6 py-4 text-sm text-gray-700">加载中...</div>
+        <div className="glass rounded-2xl px-6 py-6 flex items-center justify-center">
+          <Spinner className="h-6 w-6 text-gray-500" label="加载中" />
+          <span className="sr-only">加载中</span>
+        </div>
       </div>
     );
   }
@@ -185,9 +191,9 @@ export default function AdminShell() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
           <div className="glass w-full max-w-md rounded-2xl shadow-soft overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="font-black">\u4fee\u6539\u5bc6\u7801</div>
+              <div className="font-black">修改密码</div>
               <button className="text-sm text-gray-600 hover:text-brand-700" type="button" onClick={() => setPwOpen(false)}>
-                \u5173\u95ed
+                关闭
               </button>
             </div>
             <form
@@ -196,15 +202,15 @@ export default function AdminShell() {
                 e.preventDefault();
                 setPwErr(null);
                 if (!pwCurrent.trim()) {
-                  setPwErr("\u8bf7\u8f93\u5165\u5f53\u524d\u5bc6\u7801");
+                  setPwErr("请输入当前密码");
                   return;
                 }
                 if (pwNew.length < 8) {
-                  setPwErr("\u65b0\u5bc6\u7801\u81f3\u5c11 8 \u4f4d");
+                  setPwErr("新密码至少 8 位");
                   return;
                 }
                 if (pwNew !== pwNew2) {
-                  setPwErr("\u4e24\u6b21\u8f93\u5165\u7684\u65b0\u5bc6\u7801\u4e0d\u4e00\u81f4");
+                  setPwErr("两次输入的新密码不一致");
                   return;
                 }
                 setPwBusy(true);
@@ -213,37 +219,40 @@ export default function AdminShell() {
                     method: "POST",
                     body: JSON.stringify({ current_password: pwCurrent, new_password: pwNew })
                   });
-                  toast.success("\u5bc6\u7801\u5df2\u66f4\u65b0\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55");
+                  toast.success("密码已更新，请重新登录");
                   setPwOpen(false);
                   logout();
                 } catch (ex: any) {
-                  setPwErr(ex?.message || "\u4fee\u6539\u5931\u8d25");
+                  setPwErr(ex?.message || "修改失败");
                 } finally {
                   setPwBusy(false);
                 }
               }}
             >
               <div>
-                <Label>\u5f53\u524d\u5bc6\u7801</Label>
+                <Label>当前密码</Label>
                 <Input type="password" value={pwCurrent} onChange={(e) => setPwCurrent(e.target.value)} autoComplete="current-password" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>\u65b0\u5bc6\u7801</Label>
+                  <Label>新密码</Label>
                   <Input type="password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} autoComplete="new-password" />
                 </div>
                 <div>
-                  <Label>\u786e\u8ba4\u65b0\u5bc6\u7801</Label>
+                  <Label>确认新密码</Label>
                   <Input type="password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} autoComplete="new-password" />
                 </div>
               </div>
               {pwErr && <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{pwErr}</div>}
               <div className="flex justify-end gap-2 pt-2">
                 <Button tone="ghost" type="button" onClick={() => setPwOpen(false)}>
-                  \u5173\u95ed
+                  关闭
                 </Button>
                 <Button type="submit" disabled={pwBusy}>
-                  {pwBusy ? "\u63d0\u4ea4\u4e2d..." : "\u786e\u8ba4\u4fee\u6539"}
+                  <span className="inline-flex items-center gap-2">
+                    {pwBusy && <Spinner className="h-4 w-4 text-white" label="提交中" />}
+                    {pwBusy ? "提交中" : "确认修改"}
+                  </span>
                 </Button>
               </div>
             </form>
@@ -252,7 +261,8 @@ export default function AdminShell() {
       )}
 
       {/* Mobile drawer */}
-      <div className={["fixed inset-0 z-50 md:hidden", drawerOpen ? "" : "pointer-events-none"].join(" ")}>
+      <div className={["fixed inset-0 z-50 md:hidden", drawerOpen ? "" : "pointer-events-none"].join(" ")}
+      >
         <div
           className={["absolute inset-0 bg-black/40 transition-opacity", drawerOpen ? "opacity-100" : "opacity-0"].join(" ")}
           onClick={() => setDrawerOpen(false)}
@@ -277,11 +287,7 @@ export default function AdminShell() {
         {/* Mobile top bar */}
         <div className="md:hidden mb-4">
           <div className="glass rounded-2xl shadow-soft px-4 py-3 flex items-center justify-between">
-            <button
-              className="rounded-xl border border-gray-200 bg-white/80 px-3 py-2 text-gray-800"
-              onClick={() => setDrawerOpen(true)}
-              aria-label="打开菜单"
-            >
+            <button className="rounded-xl border border-gray-200 bg-white/80 px-3 py-2 text-gray-800" onClick={() => setDrawerOpen(true)} aria-label="打开菜单">
               <HamburgerIcon />
             </button>
             <div className="text-sm font-bold text-gray-900 truncate px-3">{breadcrumb}</div>

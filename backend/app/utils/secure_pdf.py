@@ -1,6 +1,40 @@
 ﻿from __future__ import annotations
 
+import hashlib
+
 import fitz  # PyMuPDF
+
+
+def _normalize_owner_password(owner_password: str) -> str:
+    """Normalize owner password to a stable short string.
+
+    PyMuPDF/PDF encryption can be picky about length/charset. We only use the
+    owner password to set PDF permissions (not for user access), so deriving a
+    deterministic value is safe.
+    """
+
+    s = (owner_password or "").strip() or "owner"
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()[:32]
+
+
+def encrypt_pdf_bytes(*, pdf_bytes: bytes, user_password: str, owner_password: str) -> bytes:
+    """Encrypt a PDF (AES-256) with a user-open password.
+
+    This must not silently fail: a downloaded PDF must require the password.
+    """
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        return doc.write(
+            garbage=4,
+            deflate=True,
+            encryption=fitz.PDF_ENCRYPT_AES_256,
+            permissions=0,  # best-effort: disable print/copy/edit in compliant readers
+            owner_pw=_normalize_owner_password(owner_password),
+            user_pw=(user_password or "").strip(),
+        )
+    finally:
+        doc.close()
 
 
 def watermark_encrypt_pdf_bytes(
@@ -11,55 +45,69 @@ def watermark_encrypt_pdf_bytes(
     user_password: str,
     owner_password: str,
 ) -> bytes:
-    """
-    Produce a watermarked PDF, then encrypt it (AES-256) with a user password.
+    """Produce a watermarked PDF, then encrypt it (AES-256) with a user password.
 
-    Notes:
-    - PDF encryption is not a perfect DRM solution, but it is a useful friction point.
-    - The watermark is stable (no timestamp) so it is reproducible.
+    Watermarking is best-effort. Encryption is required. If watermark drawing
+    fails (font/encoding/corrupt pdf), we still return an encrypted PDF.
     """
+
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-    fontname = "wm"
-    if font_file:
-        try:
-            doc.insert_font(fontname=fontname, fontfile=font_file)
-        except Exception:
-            fontname = "helv"
-    else:
-        fontname = "helv"
-
-    wm_matrix = fitz.Matrix(1, 1).prerotate(45)
-
-    for page in doc:
-        rect = page.rect
-        w, h = rect.width, rect.height
-        step = max(150, int(min(w, h) / 3.0))
-        fontsize = max(12, int(min(w, h) / 26))
-        for x in range(0, int(w) + step, step):
-            for y in range(0, int(h) + step, step):
-                origin = fitz.Point(x, y)
-                page.insert_text(
-                    origin,
-                    watermark_text,
-                    fontsize=fontsize,
-                    fontname=fontname,
-                    fill=(0.12, 0.12, 0.12),
-                    fill_opacity=0.20,
-                    morph=(origin, wm_matrix),
-                    overlay=True,
-                )
-
     try:
-        # Use `write()` instead of `tobytes()` to ensure encryption is applied reliably.
-        out = doc.write(
-            garbage=4,
-            deflate=True,
-            encryption=fitz.PDF_ENCRYPT_AES_256,
-            permissions=0,  # best-effort: disable print/copy/edit in compliant readers
-            owner_pw=owner_password,
-            user_pw=user_password,
-        )
-        return out
+        fontname = "wm"
+        if font_file:
+            try:
+                doc.insert_font(fontname=fontname, fontfile=font_file)
+            except Exception:
+                fontname = "helv"
+        else:
+            fontname = "helv"
+
+        # Diagonal watermark via transformation matrix.
+        wm_matrix = fitz.Matrix(1, 1).prerotate(45)
+
+        # If we fell back to helv and the watermark contains CJK, helv may fail to encode.
+        wm_text = watermark_text
+        if fontname == "helv":
+            ascii_only = watermark_text.encode("utf-8", errors="ignore").decode("ascii", errors="ignore").strip()
+            wm_text = ascii_only or "WATERMARK"
+
+        for page in doc:
+            rect = page.rect
+            w, h = rect.width, rect.height
+            step = max(220, int(min(w, h) / 2.2))
+            fontsize = max(10, int(min(w, h) / 32))
+
+            for x in range(0, int(w) + step, step):
+                for y in range(0, int(h) + step, step):
+                    origin = fitz.Point(x, y)
+                    try:
+                        page.insert_text(
+                            origin,
+                            wm_text,
+                            fontsize=fontsize,
+                            fontname=fontname,
+                            fill=(0.25, 0.25, 0.25),
+                            fill_opacity=0.09,
+                            morph=(origin, wm_matrix),
+                            overlay=True,
+                        )
+                    except Exception:
+                        # Best-effort: skip this stamp. Never block download.
+                        continue
+
+        try:
+            return doc.write(
+                garbage=4,
+                deflate=True,
+                encryption=fitz.PDF_ENCRYPT_AES_256,
+                permissions=0,
+                owner_pw=_normalize_owner_password(owner_password),
+                user_pw=(user_password or "").strip(),
+            )
+        except Exception:
+            # Last resort: drop watermark but keep encryption.
+            raw = doc.tobytes(garbage=4, deflate=True)
+            return encrypt_pdf_bytes(pdf_bytes=raw, user_password=user_password, owner_password=owner_password)
     finally:
         doc.close()

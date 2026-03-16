@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/Card";
+import Spinner from "../../components/Spinner";
 import { apiJson, apiJsonCached } from "../../lib/api";
 import type { DashboardAnalytics, DashboardStats } from "../../lib/types";
 
@@ -104,7 +105,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card title="销量排行" subtitle="按已确认订单数统计（退款不计入）">
           {!analytics ? (
-            <div className="text-sm text-gray-600">加载中...</div>
+            <div className="flex items-center justify-center py-10"><Spinner className="h-6 w-6 text-gray-500" /><span className="sr-only">加载中...</span></div>
           ) : analytics.sales_ranking.length === 0 ? (
             <div className="text-sm text-gray-600">暂无数据</div>
           ) : (
@@ -118,7 +119,7 @@ export default function DashboardPage() {
 
         <Card title="单品收入排行" subtitle="按已确认订单金额汇总（退款不计入）">
           {!analytics ? (
-            <div className="text-sm text-gray-600">加载中...</div>
+            <div className="flex items-center justify-center py-10"><Spinner className="h-6 w-6 text-gray-500" /><span className="sr-only">加载中...</span></div>
           ) : analytics.revenue_ranking.length === 0 ? (
             <div className="text-sm text-gray-600">暂无数据</div>
           ) : (
@@ -141,7 +142,7 @@ export default function DashboardPage() {
 
         <Card title="退款率" subtitle="按 refunded / total 订单计算">
           {!analytics ? (
-            <div className="text-sm text-gray-600">加载中...</div>
+            <div className="flex items-center justify-center py-10"><Spinner className="h-6 w-6 text-gray-500" /><span className="sr-only">加载中...</span></div>
           ) : analytics.refund_rate_by_product.length === 0 ? (
             <div className="text-sm text-gray-600">暂无数据</div>
           ) : (

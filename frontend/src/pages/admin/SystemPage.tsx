@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
+import Spinner from "../../components/Spinner";
 import { apiJson, apiJsonCached } from "../../lib/api";
 import type { SystemOverview } from "../../lib/types";
 
@@ -88,7 +89,7 @@ function BarChart(props: { items: BarItem[]; valueFmt?: (v: number) => string })
 
       {!data ? (
         <Card>
-          <div className="text-sm text-gray-600">加载中...</div>
+          <div className="flex items-center justify-center py-10"><Spinner className="h-6 w-6 text-gray-500" /><span className="sr-only">加载中...</span></div>
         </Card>
       ) : (
         <div className="space-y-6">

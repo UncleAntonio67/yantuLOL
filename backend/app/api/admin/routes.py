@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -114,7 +114,7 @@ def _copy_text(*, viewer_url: str, password: str, buyer_id: str) -> str:
         f"【研途LOL】亲，您的专属资料已生成。\n"
         f"在线阅读链接: {viewer_url}\n"
         f"访问密码: {password}\n"
-        f"提示: 本链接仅供在线查看；下载将在确认收货后开放。\n"
+        f"提示: 本链接仅供在线查看；下载将在管理员确认收货后开放。\n"
         f"提示: 文档已写入您的专属水印（买家ID: {buyer_id}），请勿外传。"
     )
 
@@ -742,11 +742,8 @@ def deliver_order(
     atts_cnt = db.scalar(select(func.count()).select_from(ProductAttachment).where(ProductAttachment.product_id == product.id)) or 0
     if int(atts_cnt) <= 0:
         raise HTTPException(status_code=400, detail="商品未上传 PDF 附件，无法发货")
-    if payload.delivery_method == "email":
-        if not payload.buyer_email:
-            raise HTTPException(status_code=400, detail="buyer_email is required for email delivery")
-        # Do NOT block order creation if SMTP is not configured.
-        # Sending is handled by a separate endpoint which will validate SMTP config.
+    if payload.delivery_method != "text":
+        raise HTTPException(status_code=400, detail="暂时仅支持图文文案发货方式")
 
     smtp_configured = bool(settings.smtp_host and settings.smtp_username and settings.smtp_password and settings.smtp_from)
 
@@ -775,9 +772,6 @@ def deliver_order(
 
     email_subject: str | None = None
     email_body: str | None = None
-    if payload.delivery_method == "email":
-        email_subject = "研途LOL 专属资料在线阅读"
-        email_body = copy_text
 
     return DeliverResponse(
         order_id=order_id,
@@ -1060,7 +1054,7 @@ def send_order_email(
     if not o.buyer_email:
         raise HTTPException(status_code=400, detail="Order has no buyer_email")
 
-    subject = (payload.subject or "").strip() or "研途LOL 专属资料在线阅读"
+    subject = (payload.subject or "").strip() or "鐮旈€擫OL 涓撳睘璧勬枡鍦ㄧ嚎闃呰"
     body = _append_legal_disclaimer(payload.body or "")
     send_delivery_email(to_email=o.buyer_email, subject=subject, body=body)
     return SendEmailResponse(ok=True)

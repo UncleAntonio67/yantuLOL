@@ -1,6 +1,11 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+
+@keyframes yantu-spin {
+  to { transform: rotate(360deg); }
+}
 
 :root {
   --paper: #fffaf7;
@@ -48,3 +53,5 @@ body {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
 }
+
+

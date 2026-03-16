@@ -1,4 +1,4 @@
-import { clearAdminToken, getAdminToken } from "./storage";
+﻿import { clearAdminToken, getAdminToken } from "./storage";
 import type { ViewerMeta } from "./types";
 
 export type ApiError = {
@@ -128,7 +128,9 @@ export async function apiJsonCached<T>(path: string, ttlMs: number = 5000, init?
     _jsonCache.delete(key);
     throw e;
   }
-}export async function apiForm<T>(path: string, form: FormData, init?: RequestInit): Promise<T> {
+}
+
+export async function apiForm<T>(path: string, form: FormData, init?: RequestInit): Promise<T> {
   const token = getAdminToken();
   const headers = new Headers(init?.headers || {});
   headers.set("Accept", "application/json");

@@ -1,9 +1,13 @@
+﻿
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
+import ConfirmDialog from "../../components/ConfirmDialog";
+import Spinner from "../../components/Spinner";
 import Pagination from "../../components/Pagination";
 import { apiJson, apiJsonCached } from "../../lib/api";
+import { toast } from "../../lib/toast";
 import type { AdminMe, Product, ProductPage } from "../../lib/types";
 
 function summaryText(s: string, max = 72) {
@@ -14,21 +18,24 @@ function summaryText(s: string, max = 72) {
 
 export default function ProductsPage() {
   const nav = useNavigate();
+
   const [me, setMe] = useState<AdminMe | null>(null);
   const [items, setItems] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const pageSize = 10;
+  const [deleteDlg, setDeleteDlg] = useState<{ productId: string; name: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
+  const pageSize = 10;
   const canManage = me?.role === "super_admin";
 
   const titleBlock = useMemo(() => {
     return (
       <div className="hidden md:block">
         <div className="text-2xl font-black">商品库管理</div>
-        <div className="mt-1 text-sm text-gray-600">仅支持 PDF 作为源文件，可上传多个附件并在阅读页切换查看</div>
+        <div className="mt-1 text-sm text-gray-600">仅支持 PDF 作为源文件，可上传多个附件并在阅读页切换查看。</div>
       </div>
     );
   }, []);
@@ -56,26 +63,47 @@ export default function ProductsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  async function doDelete(productId: string) {
-    if (!confirm("确认删除该商品？若已有订单将无法删除。")) return;
+  async function doDelete(productId: string, name: string) {
+    setDeleteDlg({ productId, name });
+  }
+
+  async function doDeleteConfirmed() {
+    if (!deleteDlg) return;
     setErr(null);
+    setDeleteBusy(true);
     try {
-      await apiJson(`/api/admin/products/${productId}`, { method: "DELETE" });
+      await apiJson(`/api/admin/products/${deleteDlg.productId}`, { method: "DELETE" });
+      toast.success("已删除商品");
+      setDeleteDlg(null);
       if (page !== 1 && items.length === 1) setPage((p) => Math.max(1, p - 1));
       else await refresh();
     } catch (ex: any) {
       setErr(ex?.message || "删除失败");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
   return (
     <div className="space-y-6">
+      <ConfirmDialog
+        open={!!deleteDlg}
+        title="删除商品"
+        message={deleteDlg ? `确定要删除商品：${deleteDlg.name} 吗？该操作不可恢复。` : ""}
+        confirmText="确认删除"
+        cancelText="取消"
+        danger
+        busy={deleteBusy}
+        onClose={() => setDeleteDlg(null)}
+        onConfirm={() => void doDeleteConfirmed()}
+      />
+
       <div className="flex items-end justify-between gap-3">
         {titleBlock}
         {canManage ? (
           <Button className="w-full md:w-auto" onClick={() => nav("/admin/products/new")}>新增商品</Button>
         ) : (
-          <div className="text-xs text-gray-600">仅超级管理员可新增/编辑商品</div>
+          <div className="text-xs text-gray-600">仅超级管理员可新增或编辑商品</div>
         )}
       </div>
 
@@ -83,7 +111,7 @@ export default function ProductsPage() {
 
       <Card>
         {loading ? (
-          <div className="text-sm text-gray-600">加载中...</div>
+          <div className="flex items-center justify-center py-10"><Spinner className="h-6 w-6 text-gray-500" label="加载中" /></div>
         ) : items.length === 0 ? (
           <div className="text-sm text-gray-600">暂无商品。建议先新增一个 PDF 商品用于联调。</div>
         ) : (
@@ -97,7 +125,7 @@ export default function ProductsPage() {
                   <col className="w-[110px]" />
                   <col className="w-[110px]" />
                   <col className="w-[80px]" />
-                  <col className="w-[160px]" />
+                  <col className="w-[180px]" />
                 </colgroup>
                 <thead className="text-xs text-gray-500">
                   <tr>
@@ -138,7 +166,7 @@ export default function ProductsPage() {
                             编辑
                           </Button>
                           {canManage && (
-                            <Button tone="danger" size="sm" onClick={() => void doDelete(p.id)}>
+                            <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)}>
                               删除
                             </Button>
                           )}
@@ -183,7 +211,7 @@ export default function ProductsPage() {
                       编辑
                     </Button>
                     {canManage && (
-                      <Button tone="danger" size="sm" onClick={() => void doDelete(p.id)}>
+                      <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)}>
                         删除
                       </Button>
                     )}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { onToast, type ToastPayload } from "../lib/toast";
 
 type ToastItem = {
@@ -21,7 +21,7 @@ export default function ToastHost() {
       const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
       const tone = (p.tone || "info") as ToastItem["tone"];
       const msg = String(p.message || "").trim() || "操作完成";
-      const duration = Math.max(800, Math.min(8000, Number(p.durationMs || 1600)));
+      const duration = Math.max(900, Math.min(8000, Number(p.durationMs || 1600)));
 
       setItems((prev) => [{ id, tone, message: msg }, ...prev].slice(0, 3));
 
@@ -33,13 +33,14 @@ export default function ToastHost() {
 
   if (!items.length) return null;
 
+  // Centered, minimal obstruction. Designed mainly for quick feedback such as copy success.
   return (
     <div className="fixed left-1/2 top-1/2 z-[1000] -translate-x-1/2 -translate-y-1/2 space-y-2 pointer-events-none">
       {items.map((t) => (
         <div
           key={t.id}
           className={[
-            "max-w-[320px] rounded-2xl border px-4 py-3 text-sm shadow-soft transition transform-gpu pointer-events-auto",
+            "max-w-[340px] rounded-2xl border px-4 py-3 text-sm shadow-soft transition transform-gpu pointer-events-auto",
             "backdrop-blur",
             toneClass(t.tone)
           ].join(" ")}

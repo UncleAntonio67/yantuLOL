@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timezone
 import base64
@@ -25,7 +25,7 @@ from app.schemas.schemas import (
 )
 from app.utils.qr_png import make_qr_png_bytes
 from app.utils.public_url import public_frontend_base_url
-from app.utils.secure_pdf import watermark_encrypt_pdf_bytes
+from app.utils.secure_pdf import encrypt_pdf_bytes, watermark_encrypt_pdf_bytes
 from app.utils.watermark import watermark_pdf_bytes
 
 
@@ -249,12 +249,16 @@ def viewer_document(viewer_token: str, attachment_id: str, request: Request, db:
             src, _ = storage.get_bytes(file_path)
         except Exception:
             raise HTTPException(status_code=404, detail="PDF file not found in storage")
-        out = watermark_pdf_bytes(pdf_bytes=src, watermark_text=watermark_text, font_file=font_file)
+        try:
+            out = watermark_pdf_bytes(pdf_bytes=src, watermark_text=watermark_text, font_file=font_file)
+        except Exception:
+            # Never 500 the viewer. Best-effort watermarking.
+            out = src
         _wm_cache_put(cache_key, out)
 
     headers = {
         "Content-Type": "application/pdf",
-        "Cache-Control": "no-store",
+        "Cache-Control": "private, max-age=60",
         "Content-Disposition": f'inline; filename="{Path(filename).name}"',
         "X-Content-Type-Options": "nosniff",
         "Cross-Origin-Resource-Policy": "same-origin",
@@ -339,7 +343,11 @@ def viewer_download(
             owner_password=settings.jwt_secret_key,
         )
     except Exception:
-        raise HTTPException(status_code=500, detail="Failed to generate protected PDF")
+        # Watermark is best-effort; encryption is required. Fall back to encrypted-only.
+        try:
+            out = encrypt_pdf_bytes(pdf_bytes=src, user_password=pw, owner_password=settings.jwt_secret_key)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to generate protected PDF")
 
     headers = {
         "Content-Type": "application/pdf",
@@ -368,6 +376,8 @@ def viewer_qrcode_png(order_id: str, request: Request, db: Session = Depends(get
         "X-Content-Type-Options": "nosniff",
     }
     return Response(content=png, media_type="image/png", headers=headers)
+
+
 
 
 

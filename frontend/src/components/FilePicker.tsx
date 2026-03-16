@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useState } from "react";
+﻿import React, { useId, useMemo, useState } from "react";
 
 export default function FilePicker(props: {
   name: string;
@@ -13,9 +13,9 @@ export default function FilePicker(props: {
   const [names, setNames] = useState<string[]>([]);
 
   const summary = useMemo(() => {
-    if (!names.length) return "未选择";
+    if (!names.length) return "未选择文件";
     if (names.length === 1) return names[0];
-    return `已选择 ${names.length} 个文件`; 
+    return `已选择 ${names.length} 个文件`;
   }, [names]);
 
   return (
