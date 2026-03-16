@@ -14,36 +14,41 @@ import type { AdminMe, Product, ProductAttachment, ProductDetail } from "../../l
 export default function ProductEditPage() {
   const nav = useNavigate();
   const { productId } = useParams();
+
   const [me, setMe] = useState<AdminMe | null>(null);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attBusy, setAttBusy] = useState(false);
+
   const [deleteAtt, setDeleteAtt] = useState<ProductAttachment | null>(null);
   const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
   const [isActive, setIsActive] = useState<"true" | "false">("true");
 
   const canManage = me?.role === "super_admin";
 
-  useEffect(() => {
-    apiJsonCached<AdminMe>("/api/admin/me", 10000).then(setMe).catch(() => setMe(null));
+  const titleBlock = useMemo(() => {
+    return (
+      <div className="hidden md:block">
+        <div className="text-2xl font-black">编辑商品</div>
+        <div className="mt-1 text-sm text-gray-600">删除商品请在商品列表中操作；此处仅编辑商品信息与附件。</div>
+      </div>
+    );
   }, []);
-
-  useEffect(() => {
-    return () => {
-      if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
-    };
-  }, [coverPreviewUrl]);
 
   async function reload() {
     if (!productId) return;
     setErr(null);
     try {
-      const d = await apiJson<ProductDetail>(`/api/admin/products/${productId}`);
+      const [m, d] = await Promise.all([
+        apiJsonCached<AdminMe>("/api/admin/me", 10000),
+        apiJson<ProductDetail>(`/api/admin/products/${productId}`)
+      ]);
+      setMe(m);
       setDetail(d);
-      setIsActive(String((d as any).is_active) === "false" ? "false" : "true");
+      setIsActive(d.is_active ? "true" : "false");
     } catch (ex: any) {
-      setErr(ex?.message || "鍔犺浇澶辫触");
+      setErr(ex?.message || "加载失败");
     }
   }
 
@@ -52,24 +57,21 @@ export default function ProductEditPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId]);
 
+  // Keep a stable preview even before server updates cover.
   const modalCoverSrc = useMemo(() => {
-    if (coverPreviewUrl) return coverPreviewUrl;
-    return detail?.cover_image || null;
-  }, [coverPreviewUrl, detail]);
+    return coverPreviewUrl || detail?.cover_image || null;
+  }, [coverPreviewUrl, detail?.cover_image]);
 
-  const titleBlock = useMemo(() => {
-    return (
-      <div className="hidden md:block">
-        <div className="text-2xl font-black">缂栬緫鍟嗗搧</div>
-        <div className="mt-1 text-sm text-gray-600">鍒犻櫎鎿嶄綔宸蹭粠鏈〉绉婚櫎锛岃鍦ㄥ晢鍝佸垪琛ㄤ腑鍒犻櫎</div>
-      </div>
-    );
-  }, []);
+  useEffect(() => {
+    return () => {
+      if (coverPreviewUrl) URL.revokeObjectURL(coverPreviewUrl);
+    };
+  }, [coverPreviewUrl]);
 
   if (!productId) {
     return (
       <Card>
-        <div className="text-sm text-gray-700">缂哄皯 productId</div>
+        <div className="text-sm text-gray-700">缺少 productId</div>
       </Card>
     );
   }
@@ -79,9 +81,9 @@ export default function ProductEditPage() {
       <div className="space-y-4">
         {titleBlock}
         <Card>
-          <div className="text-sm text-gray-700">褰撳墠璐﹀彿鏃犳潈闄愮紪杈戝晢鍝侊紝璇蜂娇鐢ㄨ秴绾х鐞嗗憳璐﹀彿鎿嶄綔銆?/div>
+          <div className="text-sm text-gray-700">当前账号无权限编辑商品，请使用超级管理员账号操作。</div>
           <div className="mt-4">
-            <Button tone="ghost" onClick={() => nav("/admin/products")}>杩斿洖鍟嗗搧搴?/Button>
+            <Button tone="ghost" onClick={() => nav("/admin/products")}>返回商品库</Button>
           </div>
         </Card>
       </div>
@@ -93,7 +95,7 @@ export default function ProductEditPage() {
       <div className="flex items-end justify-between gap-3">
         {titleBlock}
         <div className="hidden md:block">
-          <Button tone="ghost" onClick={() => nav("/admin/products")}>杩斿洖</Button>
+          <Button tone="ghost" onClick={() => nav("/admin/products")}>返回</Button>
         </div>
       </div>
 
@@ -127,11 +129,14 @@ export default function ProductEditPage() {
 
       {!detail ? (
         <Card>
-          <div className="flex items-center justify-center py-10"><Spinner className="h-6 w-6 text-gray-500" /><span className="sr-only">鍔犺浇涓?..</span></div>
+          <div className="flex items-center justify-center py-10">
+            <Spinner className="h-6 w-6 text-gray-500" label="加载中" />
+            <span className="sr-only">加载中</span>
+          </div>
         </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Card title="鍩虹淇℃伅" subtitle="鍚嶇О銆佹弿杩般€佷环鏍笺€佺姸鎬? className="lg:col-span-2">
+          <Card title="基础信息" subtitle="名称、描述、价格、状态" className="lg:col-span-2">
             <form
               className="space-y-4"
               onSubmit={async (e) => {
@@ -145,11 +150,12 @@ export default function ProductEditPage() {
                   const clearCover = String(fd.get("clear_cover") || "") === "on";
 
                   const patch: any = {
-                    name: String(fd.get("name") || ""),
+                    name: String(fd.get("name") || "").trim(),
                     description: String(fd.get("description") || ""),
                     price: String(fd.get("price") || "0"),
                     is_active: String(fd.get("is_active") || "true") === "true"
                   };
+
                   if (clearCover) patch.cover_image = null;
                   else if (coverUrl) patch.cover_image = coverUrl;
 
@@ -164,37 +170,39 @@ export default function ProductEditPage() {
                     await apiForm<Product>(`/api/admin/products/${detail.id}/cover-image`, imgFd);
                   }
 
-                  toast.success("宸蹭繚瀛?);
+                  toast.success("已保存");
                   await reload();
                 } catch (ex: any) {
-                  setErr(ex?.message || "淇濆瓨澶辫触");
+                  setErr(ex?.message || "保存失败");
                 } finally {
                   setBusy(false);
                 }
               }}
             >
               <div>
-                <Label>鍟嗗搧鍚嶇О</Label>
+                <Label>商品名称</Label>
                 <Input name="name" defaultValue={detail.name} required />
               </div>
+
               <div>
-                <Label>鍟嗗搧鎻忚堪</Label>
+                <Label>商品描述</Label>
                 <Textarea name="description" rows={5} defaultValue={detail.description} />
               </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>鍞环</Label>
+                  <Label>售价</Label>
                   <Input name="price" type="number" step="0.01" defaultValue={String(detail.price)} required />
                 </div>
                 <div>
-                  <Label>鐘舵€?/Label>
+                  <Label>状态</Label>
                   <input type="hidden" name="is_active" value={isActive} />
                   <Segmented
                     size="sm"
                     value={isActive}
                     options={[
-                      { value: "true", label: "\u4e0a\u67b6" },
-                      { value: "false", label: "\u4e0b\u67b6" }
+                      { value: "true", label: "上架" },
+                      { value: "false", label: "下架" }
                     ]}
                     onChange={(v: any) => setIsActive(v)}
                   />
@@ -202,15 +210,15 @@ export default function ProductEditPage() {
               </div>
 
               <div className="rounded-2xl border border-gray-100 bg-white/70 p-4 space-y-3">
-                <div className="text-xs font-semibold tracking-wide text-gray-700">灏侀潰鍥剧墖</div>
+                <div className="text-xs font-semibold tracking-wide text-gray-700">封面图片</div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <FilePicker
                     name="cover_image_file"
                     accept="image/png,image/jpeg,image/webp"
                     multiple={false}
                     required={false}
-                    label="涓婁紶灏侀潰"
-                    hint="鏀寔 png/jpg/webp銆?
+                    label="上传封面"
+                    hint="支持 png/jpg/webp。"
                     onFilesChange={(files) => {
                       const f = files[0];
                       if (!f) {
@@ -222,40 +230,46 @@ export default function ProductEditPage() {
                     }}
                   />
                   <div>
-                    <Label>灏侀潰 URL (澶囬€?</Label>
-                    <Input name="cover_image" defaultValue={detail.cover_image || ""} placeholder="渚嬪 https://.../cover.png" />
+                    <Label>封面 URL（可选）</Label>
+                    <Input name="cover_image" defaultValue={detail.cover_image || ""} placeholder="例如 https://.../cover.png" />
                   </div>
                 </div>
                 <label className="flex items-center gap-2 text-xs text-gray-600">
                   <input name="clear_cover" type="checkbox" />
-                  娓呯┖灏侀潰鍥?
+                  清空封面图
                 </label>
+                <div className="text-[11px] text-gray-600 leading-5">提示: 封面上传会覆盖 URL；如需移除封面请勾选“清空封面图”。</div>
               </div>
 
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <Button tone="ghost" type="button" onClick={() => nav("/admin/products")}>杩斿洖鍒楄〃</Button>
-                <Button type="submit" disabled={busy}>{busy ? "淇濆瓨涓?.." : "淇濆瓨"}</Button>
+                <Button tone="ghost" type="button" onClick={() => nav("/admin/products")}>返回列表</Button>
+                <Button type="submit" disabled={busy}>
+                  <span className="inline-flex items-center gap-2">
+                    {busy && <Spinner className="h-4 w-4 text-white" label="保存中" />}
+                    {busy ? "保存中" : "保存"}
+                  </span>
+                </Button>
               </div>
             </form>
           </Card>
 
-          <Card title="灏侀潰棰勮" subtitle="鍒楄〃灞曠ず鏁堟灉" className="lg:col-span-1">
+          <Card title="封面预览" subtitle="列表展示效果" className="lg:col-span-1">
             <div className="rounded-2xl border border-gray-100 bg-white/80 p-3">
               {modalCoverSrc ? (
                 <img src={modalCoverSrc} alt="cover preview" className="w-full aspect-square rounded-xl object-cover border border-gray-100 bg-white" />
               ) : (
                 <div className="w-full aspect-square rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white flex items-center justify-center text-xs font-black text-gray-400">
-                  鏆傛棤
+                  暂无
                 </div>
               )}
             </div>
-            <div className="mt-3 text-[11px] text-gray-600 leading-5">灏侀潰涓婁紶鍚庝細瑕嗙洊 URL銆傚缓璁娇鐢ㄦ竻鏅扮殑 1:1 鍥剧墖銆?/div>
+            <div className="mt-3 text-[11px] text-gray-600 leading-5">建议使用清晰的 1:1 图片作为封面。</div>
           </Card>
 
-          <Card title="闄勪欢绠＄悊" subtitle="浠呮敮鎸?PDF锛屽彲杩藉姞鎴栧垹闄? className="lg:col-span-3">
+          <Card title="附件管理" subtitle="仅支持 PDF，可追加或删除" className="lg:col-span-3">
             <div className="space-y-4">
               {detail.attachments.length === 0 ? (
-                <div className="text-sm text-gray-600">鏆傛棤闄勪欢</div>
+                <div className="text-sm text-gray-600">暂无附件</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {detail.attachments
@@ -274,7 +288,7 @@ export default function ProductEditPage() {
                           disabled={attBusy}
                           onClick={() => setDeleteAtt(a)}
                         >
-                          鍒犻櫎
+                          删除
                         </Button>
                       </div>
                     ))}
@@ -287,8 +301,8 @@ export default function ProductEditPage() {
                   accept="application/pdf"
                   multiple
                   required={false}
-                  label="杩藉姞闄勪欢"
-                  hint="浠呮敮鎸?PDF銆備笂浼犲悗涔板闃呰椤靛彲鍒囨崲鏌ョ湅澶氫釜鏂囦欢銆?
+                  label="追加附件"
+                  hint="仅支持 PDF。上传后买家阅读页可切换查看多个文件。"
                   onFilesChange={async (files) => {
                     if (!files.length) return;
                     setErr(null);
@@ -297,10 +311,10 @@ export default function ProductEditPage() {
                       const fd = new FormData();
                       for (const f of files) fd.append("attachments", f);
                       await apiForm(`/api/admin/products/${detail.id}/attachments`, fd);
-                      toast.success("闄勪欢宸蹭笂浼?);
+                      toast.success("附件已上传");
                       await reload();
                     } catch (ex: any) {
-                      setErr(ex?.message || "涓婁紶澶辫触");
+                      setErr(ex?.message || "上传失败");
                     } finally {
                       setAttBusy(false);
                     }
@@ -314,4 +328,3 @@ export default function ProductEditPage() {
     </div>
   );
 }
-

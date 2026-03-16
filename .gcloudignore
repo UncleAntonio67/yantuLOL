@@ -10,3 +10,8 @@ frontend/node_modules/
 frontend/dist/
 logs/
 .DS_Store
+.gcloud_config/
+env-*.yaml
+env-*.yml
+env-bootstrap.yaml
+env-prod.yaml

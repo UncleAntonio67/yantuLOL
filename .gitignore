@@ -21,3 +21,5 @@ __uvicorn_*.txt
 *.tsbuildinfo
 
 .gcloud/
+.gcloud_config/
+!env-prod.example.yaml

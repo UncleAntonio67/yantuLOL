@@ -198,7 +198,7 @@ def viewer_document_default(viewer_token: str, request: Request, db: Session = D
         raise HTTPException(status_code=404, detail="Product not found")
     atts = _list_attachments(product=p, db=db)
     if not atts:
-        raise HTTPException(status_code=404, detail="濞屸剝婀侀崣顖炴鐠囪崵娈戦弬鍥︽")
+        raise HTTPException(status_code=404, detail="No readable PDF attachment")
     return viewer_document(viewer_token=viewer_token, attachment_id=atts[0].id, request=request, db=db)
 
 
@@ -376,6 +376,7 @@ def viewer_qrcode_png(order_id: str, request: Request, db: Session = Depends(get
         "X-Content-Type-Options": "nosniff",
     }
     return Response(content=png, media_type="image/png", headers=headers)
+
 
 
 
