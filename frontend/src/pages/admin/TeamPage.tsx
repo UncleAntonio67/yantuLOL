@@ -4,6 +4,7 @@ import Card from "../../components/Card";
 import { Input, Label } from "../../components/Field";
 import Segmented from "../../components/Segmented";
 import { apiJson, apiJsonCached } from "../../lib/api";
+import { toast } from "../../lib/toast";
 import type { AdminMe, TeamMember } from "../../lib/types";
 
 export default function TeamPage() {
@@ -95,6 +96,7 @@ export default function TeamPage() {
                   setItems((prev) => [created, ...prev]);
                   setModalOpen(false);
                   void refresh();
+                  toast.success("\u7ba1\u7406\u5458\u5df2\u521b\u5efa");
                 } catch (ex: any) {
                   setErr(ex?.message || "创建失败");
                 }
@@ -122,8 +124,8 @@ export default function TeamPage() {
                     size="sm"
                     value={newRole}
                     options={[
-                      { value: "normal_admin", label: "?????" },
-                      { value: "super_admin", label: "?????" }
+                      { value: "normal_admin", label: "\u666e\u901a\u7ba1\u7406\u5458" },
+                      { value: "super_admin", label: "\u8d85\u7ea7\u7ba1\u7406\u5458" }
                     ]}
                     onChange={(v: any) => setNewRole(v)}
                   />

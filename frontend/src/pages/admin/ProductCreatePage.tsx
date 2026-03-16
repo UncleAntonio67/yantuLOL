@@ -112,8 +112,8 @@ export default function ProductCreatePage() {
                     size="sm"
                     value={isActive}
                     options={[
-                      { value: "true", label: "??" },
-                      { value: "false", label: "??" }
+                      { value: "true", label: "\u4e0a\u67b6" },
+                      { value: "false", label: "\u4e0b\u67b6" }
                     ]}
                     onChange={(v: any) => setIsActive(v)}
                   />

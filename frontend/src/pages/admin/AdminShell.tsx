@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { apiJson } from "../../lib/api";
 import { Input, Label } from "../../components/Field";
 import { toast } from "../../lib/toast";
+import Spinner from "../../components/Spinner";
 import { ADMIN_TOKEN_CLEARED_EVENT, clearAdminToken, getAdminToken } from "../../lib/storage";
 import type { AdminMe } from "../../lib/types";
 
@@ -113,7 +114,7 @@ export default function AdminShell() {
         : "h-full w-[280px] bg-white shadow-2xl";
 
     return (
-      <aside className={cls}>
+      <aside className={[cls, "flex flex-col"].join(" ")}>
         <div className="px-5 py-5 border-b border-gray-100">
           <Link to="/admin" className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-xl bg-brand-600 text-white flex items-center justify-center font-black">研</div>
@@ -124,7 +125,7 @@ export default function AdminShell() {
           </Link>
         </div>
 
-        <nav className="p-3 space-y-2">
+        <nav className="p-3 space-y-2 flex-1 overflow-auto">
           <NavLink to="/admin" end className={({ isActive }) => itemClass(isActive)}>
             数据总览
           </NavLink>
@@ -159,10 +160,10 @@ export default function AdminShell() {
                 setPwOpen(true);
               }}
             >
-              ????
+              {"\u4fee\u6539\u5bc6\u7801"}
             </button>
             <button className="text-xs font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={logout}>
-              ??
+              {"\u9000\u51fa"}
             </button>
           </div>
         </div>
@@ -184,9 +185,9 @@ export default function AdminShell() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
           <div className="glass w-full max-w-md rounded-2xl shadow-soft overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="font-black">????</div>
+              <div className="font-black">\u4fee\u6539\u5bc6\u7801</div>
               <button className="text-sm text-gray-600 hover:text-brand-700" type="button" onClick={() => setPwOpen(false)}>
-                ??
+                \u5173\u95ed
               </button>
             </div>
             <form
@@ -195,15 +196,15 @@ export default function AdminShell() {
                 e.preventDefault();
                 setPwErr(null);
                 if (!pwCurrent.trim()) {
-                  setPwErr("???????");
+                  setPwErr("\u8bf7\u8f93\u5165\u5f53\u524d\u5bc6\u7801");
                   return;
                 }
                 if (pwNew.length < 8) {
-                  setPwErr("????? 8 ?");
+                  setPwErr("\u65b0\u5bc6\u7801\u81f3\u5c11 8 \u4f4d");
                   return;
                 }
                 if (pwNew !== pwNew2) {
-                  setPwErr("???????????");
+                  setPwErr("\u4e24\u6b21\u8f93\u5165\u7684\u65b0\u5bc6\u7801\u4e0d\u4e00\u81f4");
                   return;
                 }
                 setPwBusy(true);
@@ -212,37 +213,37 @@ export default function AdminShell() {
                     method: "POST",
                     body: JSON.stringify({ current_password: pwCurrent, new_password: pwNew })
                   });
-                  toast.success("???????????");
+                  toast.success("\u5bc6\u7801\u5df2\u66f4\u65b0\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55");
                   setPwOpen(false);
                   logout();
                 } catch (ex: any) {
-                  setPwErr(ex?.message || "????");
+                  setPwErr(ex?.message || "\u4fee\u6539\u5931\u8d25");
                 } finally {
                   setPwBusy(false);
                 }
               }}
             >
               <div>
-                <Label>????</Label>
+                <Label>\u5f53\u524d\u5bc6\u7801</Label>
                 <Input type="password" value={pwCurrent} onChange={(e) => setPwCurrent(e.target.value)} autoComplete="current-password" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <Label>???</Label>
+                  <Label>\u65b0\u5bc6\u7801</Label>
                   <Input type="password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} autoComplete="new-password" />
                 </div>
                 <div>
-                  <Label>?????</Label>
+                  <Label>\u786e\u8ba4\u65b0\u5bc6\u7801</Label>
                   <Input type="password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} autoComplete="new-password" />
                 </div>
               </div>
               {pwErr && <div className="rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">{pwErr}</div>}
               <div className="flex justify-end gap-2 pt-2">
                 <Button tone="ghost" type="button" onClick={() => setPwOpen(false)}>
-                  ??
+                  \u5173\u95ed
                 </Button>
                 <Button type="submit" disabled={pwBusy}>
-                  {pwBusy ? "???..." : "????"}
+                  {pwBusy ? "\u63d0\u4ea4\u4e2d..." : "\u786e\u8ba4\u4fee\u6539"}
                 </Button>
               </div>
             </form>

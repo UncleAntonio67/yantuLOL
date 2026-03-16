@@ -198,7 +198,7 @@ def viewer_document_default(viewer_token: str, request: Request, db: Session = D
         raise HTTPException(status_code=404, detail="Product not found")
     atts = _list_attachments(product=p, db=db)
     if not atts:
-        raise HTTPException(status_code=404, detail="娌℃湁鍙槄璇荤殑鏂囦欢")
+        raise HTTPException(status_code=404, detail="濞屸剝婀侀崣顖炴鐠囪崵娈戦弬鍥︽")
     return viewer_document(viewer_token=viewer_token, attachment_id=atts[0].id, request=request, db=db)
 
 
@@ -215,7 +215,7 @@ def viewer_document(viewer_token: str, attachment_id: str, request: Request, db:
     file_path, filename = _find_attachment_path(atts, attachment_id)
 
     if not file_path or str(file_path).startswith('__'):
-        raise HTTPException(status_code=404, detail="??????")
+        raise HTTPException(status_code=404, detail="No readable PDF attachment")
 
     # pdf.js may issue multiple HTTP Range requests for a single view.
     # Count a view only for the initial chunk, and at most once per 30s per order.
@@ -242,14 +242,13 @@ def viewer_document(viewer_token: str, attachment_id: str, request: Request, db:
 
     watermark_text = f"{o.buyer_id} | {o.id}"
     font_file = settings.resolved_watermark_font_file()
-
     cache_key = (str(file_path), str(watermark_text), str(font_file or ""))
     out = _wm_cache_get(cache_key)
     if out is None:
         try:
             src, _ = storage.get_bytes(file_path)
         except Exception:
-            raise HTTPException(status_code=404, detail="文件不存在或已被删除")
+            raise HTTPException(status_code=404, detail="PDF file not found in storage")
         out = watermark_pdf_bytes(pdf_bytes=src, watermark_text=watermark_text, font_file=font_file)
         _wm_cache_put(cache_key, out)
 
@@ -302,12 +301,15 @@ def viewer_download_get_deprecated(viewer_token: str, attachment_id: str, db: Se
 
 
 @router.post("/download/{viewer_token}/{attachment_id}")
-def viewer_download(viewer_token: str, attachment_id: str, payload: ViewerDownloadRequest, db: Session = Depends(get_db)) -> Response:
+def viewer_download(
+    viewer_token: str, attachment_id: str, payload: ViewerDownloadRequest, db: Session = Depends(get_db)
+) -> Response:
     settings = get_settings()
     order_id, pv = _decode_viewer_token(viewer_token)
     o = _load_active_order(order_id, pv, db)
     if not o.confirmed_at:
         raise HTTPException(status_code=403, detail="Download is not enabled yet")
+
     pw = (payload.password or "").strip()
     if not verify_password(pw, o.access_password_hash):
         raise HTTPException(status_code=401, detail="Invalid password")
@@ -319,27 +321,32 @@ def viewer_download(viewer_token: str, attachment_id: str, payload: ViewerDownlo
     atts = _list_attachments(product=p, db=db)
     file_path, filename = _find_attachment_path(atts, attachment_id)
 
-    if not file_path or str(file_path).startswith('__'):
-        raise HTTPException(status_code=404, detail="鏂囦欢灏氭湭涓婁紶")
+    if not file_path or str(file_path).startswith("__"):
+        raise HTTPException(status_code=404, detail="No readable PDF attachment")
 
-    # Do not persist generated PDFs on server to avoid storage growth.
     try:
         src, _ = storage.get_bytes(file_path)
     except Exception:
-        raise HTTPException(status_code=404, detail="鏂囦欢涓嶅瓨鍦ㄦ垨宸茶鍒犻櫎")
+        raise HTTPException(status_code=404, detail="PDF file not found in storage")
+
     watermark_text = f"{o.buyer_id} | {o.id}"
-    out = watermark_encrypt_pdf_bytes(
-        pdf_bytes=src,
-        watermark_text=watermark_text,
-        font_file=settings.resolved_watermark_font_file(),
-        user_password=pw,
-        owner_password=settings.jwt_secret_key,
-    )
+    try:
+        out = watermark_encrypt_pdf_bytes(
+            pdf_bytes=src,
+            watermark_text=watermark_text,
+            font_file=settings.resolved_watermark_font_file(),
+            user_password=pw,
+            owner_password=settings.jwt_secret_key,
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to generate protected PDF")
+
     headers = {
         "Content-Type": "application/pdf",
         "Cache-Control": "no-store",
-        "Content-Disposition": f"attachment; filename=\"{Path(filename).stem}_download.pdf\"",
+        "Content-Disposition": f'attachment; filename="{Path(filename).stem}_download.pdf"',
         "X-Content-Type-Options": "nosniff",
+        "Cross-Origin-Resource-Policy": "same-origin",
     }
     return Response(content=out, media_type="application/pdf", headers=headers)
 

@@ -85,10 +85,25 @@ class Settings(BaseSettings):
     def resolved_watermark_font_file(self) -> str | None:
         if self.watermark_font_file:
             return self.watermark_font_file
-        # Windows default for Chinese text rendering (dev convenience)
-        win = Path(os.environ.get("WINDIR", r"C:\\Windows")) / "Fonts" / "msyh.ttc"
+
+        # Windows dev convenience (Chinese-capable font)
+        win = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "msyh.ttc"
         if win.exists():
             return str(win)
+
+        # Cloud Run / Debian: fonts-noto-cjk installs Noto TTC/OTF under /usr/share/fonts.
+        linux_candidates = [
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansSC-Regular.otf"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansCJKsc-Regular.otf"),
+            Path("/usr/share/fonts/truetype/noto/NotoSansSC-Regular.otf"),
+        ]
+        for c in linux_candidates:
+            if c.exists():
+                return str(c)
+
         return None
 
 

@@ -3,6 +3,7 @@ import Button from "../../components/Button";
 import Card from "../../components/Card";
 import Segmented from "../../components/Segmented";
 import Pagination from "../../components/Pagination";
+import Spinner from "../../components/Spinner";
 import { Input, Label } from "../../components/Field";
 import SelectMenu from "../../components/SelectMenu";
 import { apiJson, apiJsonCached } from "../../lib/api";
@@ -79,9 +80,26 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("");
 
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [advOpen, setAdvOpen] = useState(false);
 
   const [sortBy, setSortBy] = useState<"created_at" | "unit_price">("created_at");
   const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+
+  function toggleSort(field: "created_at" | "unit_price") {
+    if (sortBy !== field) {
+      setSortBy(field);
+      setSortDir("desc");
+      setPage(1);
+      return;
+    }
+    setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    setPage(1);
+  }
+
+  function sortArrow(field: "created_at" | "unit_price") {
+    if (sortBy !== field) return "";
+    return sortDir === "asc" ? "\u2191" : "\u2193";
+  }
 
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -280,13 +298,14 @@ export default function OrdersPage() {
           }
         }}
       >
+              <div className="space-y-3">
         <div>
           <Label>选择商品</Label>
           <SelectMenu
             value={productId}
             onChange={(v) => setProductId(v)}
             options={products.map((p) => ({ value: p.id, label: p.name }))}
-            placeholder="?????"
+            placeholder="\u8bf7\u9009\u62e9\u5546\u54c1"
             searchable
           />
         </div>
@@ -300,9 +319,9 @@ export default function OrdersPage() {
             size="sm"
             value={deliveryMethod}
             options={[
-              { value: "text", label: "??????" },
-              { value: "email", label: "????" },
-              { value: "qrcode", label: "???" }
+              { value: "text", label: "\u56fe\u6587\u79c1\u4fe1\u6587\u6848" },
+              { value: "email", label: "\u53d1\u81f3\u90ae\u7bb1" },
+              { value: "qrcode", label: "\u4e8c\u7ef4\u7801" }
             ]}
             onChange={(v: any) => { setDeliveryMethod(v as any); }}
           />
@@ -314,6 +333,7 @@ export default function OrdersPage() {
           </div>
         )}
 
+        </div>
         <Button type="submit" disabled={deliverBusy} className="w-full">
           {deliverBusy ? "生成中..." : "生成专属资料"}
         </Button>
@@ -441,16 +461,49 @@ export default function OrdersPage() {
     <Card title="发货记录 & 售后" subtitle="支持按买家、商品、操作人、日期筛选">
       <div className="md:hidden flex items-center justify-between gap-2">
         <div className="text-xs text-gray-600">共 {total} 条</div>
-        <Button tone="ghost" size="sm" type="button" onClick={() => setFiltersOpen(true)}>
-          筛选/排序
-        </Button>
+        <div className="flex items-center gap-2">
+          <Segmented
+            size="sm"
+            value={sortBy}
+            options={[
+              { value: "created_at", label: "时间" },
+              { value: "unit_price", label: "金额" }
+            ]}
+            onChange={(v: any) => {
+              setSortBy(v as any);
+              setPage(1);
+            }}
+          />
+          <button
+            type="button"
+            className="rounded-xl border border-gray-200 bg-white/80 px-3 py-2 text-xs font-semibold text-gray-800"
+            onClick={() => {
+              setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+              setPage(1);
+            }}
+            aria-label="toggle sort direction"
+          >
+            {sortDir === "asc" ? "↑" : "↓"}
+          </button>
+          <Button
+            tone="ghost"
+            size="sm"
+            type="button"
+            onClick={() => {
+              setAdvOpen(false);
+              setFiltersOpen(true);
+            }}
+          >
+            {"\u7b5b\u9009"}
+          </Button>
+        </div>
       </div>
 
       {filtersOpen && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/30 p-4">
-          <div className="glass w-full max-w-lg rounded-t-3xl md:rounded-2xl shadow-soft overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="glass w-full max-w-lg rounded-2xl shadow-soft overflow-hidden">
             <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white/80 backdrop-blur">
-              <div className="font-black">筛选与排序</div>
+              <div className="font-black">{"\u7b5b\u9009\u4e0e\u6392\u5e8f"}</div>
               <button className="text-sm text-gray-600 hover:text-brand-700" type="button" onClick={() => setFiltersOpen(false)}>
                 关闭
               </button>
@@ -465,8 +518,8 @@ export default function OrdersPage() {
                 <SelectMenu
                   value={productFilter}
                   onChange={(v) => { setProductFilter(v); setPage(1); }}
-                  options={[{ value: "", label: "??" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
-                  placeholder="??"
+                  options={[{ value: "", label: "\u5168\u90e8" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
+                  placeholder="\u5168\u90e8"
                   searchable
                 />
               </div>
@@ -475,8 +528,8 @@ export default function OrdersPage() {
                 <SelectMenu
                   value={operatorFilter}
                   onChange={(v) => { setOperatorFilter(v); setPage(1); }}
-                  options={[{ value: "", label: "??" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
-                  placeholder="??"
+                  options={[{ value: "", label: "\u5168\u90e8" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
+                  placeholder="\u5168\u90e8"
                   searchable
                 />
               </div>
@@ -582,8 +635,8 @@ export default function OrdersPage() {
           <SelectMenu
                   value={productFilter}
                   onChange={(v) => { setProductFilter(v); setPage(1); }}
-                  options={[{ value: "", label: "??" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
-                  placeholder="??"
+                  options={[{ value: "", label: "\u5168\u90e8" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
+                  placeholder="\u5168\u90e8"
                   searchable
                 />
         </div>
@@ -592,8 +645,8 @@ export default function OrdersPage() {
           <SelectMenu
                   value={operatorFilter}
                   onChange={(v) => { setOperatorFilter(v); setPage(1); }}
-                  options={[{ value: "", label: "??" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
-                  placeholder="??"
+                  options={[{ value: "", label: "\u5168\u90e8" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
+                  placeholder="\u5168\u90e8"
                   searchable
                 />
         </div>
@@ -664,12 +717,17 @@ export default function OrdersPage() {
       </div>
 
       {orders.length === 0 && loading ? (
-        <div className="mt-4 text-sm text-gray-600">加载中...</div>
+        <div className="mt-4 flex items-center gap-2 text-sm text-gray-600"><Spinner className="h-5 w-5 text-gray-500" /><span>{"\u52a0\u8f7d\u4e2d..."}</span></div>
       ) : orders.length === 0 ? (
         <div className="mt-4 text-sm text-gray-600">暂无订单</div>
       ) : (
         <div className="mt-4 space-y-3">
-          {loading && <div className="text-[11px] text-gray-500">加载中...</div>}
+          {loading && (
+            <div className="flex items-center gap-2 text-[11px] text-gray-500">
+              <Spinner className="h-4 w-4 text-gray-500" />
+              <span>{"\u52a0\u8f7d\u4e2d..."}</span>
+            </div>
+          )}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full table-auto text-left text-sm min-w-[980px]">
               <thead className="text-xs text-gray-500">
@@ -679,9 +737,27 @@ export default function OrdersPage() {
                   <th className="px-3 py-3">商品</th>
                   <th className="px-3 py-3">操作人</th>
                   <th className="px-3 py-3">状态</th>
-                  <th className="px-3 py-3">营收</th>
+                  <th className="px-3 py-3">
+  <button
+    type="button"
+    className="inline-flex items-center gap-1 font-semibold text-gray-600 hover:text-gray-900"
+    onClick={() => toggleSort("unit_price")}
+    aria-label="sort by amount"
+  >
+    金额 <span className="text-[11px]">{sortArrow("unit_price")}</span>
+  </button>
+</th>
                   <th className="px-3 py-3">密码</th>
-                  <th className="px-3 py-3">创建</th>
+                  <th className="px-3 py-3">
+  <button
+    type="button"
+    className="inline-flex items-center gap-1 font-semibold text-gray-600 hover:text-gray-900"
+    onClick={() => toggleSort("created_at")}
+    aria-label="sort by time"
+  >
+    时间 <span className="text-[11px]">{sortArrow("created_at")}</span>
+  </button>
+</th>
                   <th className="px-3 py-3 text-right">操作</th>
                 </tr>
               </thead>
@@ -878,7 +954,7 @@ export default function OrdersPage() {
             <div className="p-5 space-y-3">
               <div className="text-xs text-gray-600">订单: <span className="font-mono">{pwDlg.orderId}</span></div>
               {pwDlg.loading ? (
-                <div className="text-sm text-gray-600">加载中...</div>
+                <div className="text-sm text-gray-600">{"\u52a0\u8f7d\u4e2d..."}</div>
               ) : pwDlg.err ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{pwDlg.err}</div>
               ) : (
@@ -899,6 +975,7 @@ export default function OrdersPage() {
             </div>
           </div>
         </div>
-      )}    </div>
+      )}
+    </div>
   );
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
+import Spinner from "../../components/Spinner";
 import { Input, Label } from "../../components/Field";
 import { downloadViewerPdf, fetchViewerMeta, viewerAuth } from "../../lib/api";
 import type { ViewerMeta } from "../../lib/types";
@@ -79,7 +80,7 @@ export default function ViewerPage() {
       if (cancelled) return;
 
       const numPages = Number(pdf.numPages || 0);
-      if (!numPages) throw new Error("??????");
+      if (!numPages) throw new Error("Invalid PDF: no pages");
 
       const first = await pdf.getPage(1);
       const vp1 = first.getViewport({ scale: 1 });
@@ -88,7 +89,7 @@ export default function ViewerPage() {
 
       const rendered = new Set<number>();
       const inflight = new Map<number, Promise<void>>();
-      const placeholderHeight = Math.max(240, Math.floor(vp1.height * fitScale));
+      const placeholderHeight = Math.max(160, Math.floor(vp1.height * fitScale * 0.6));
 
       io = new IntersectionObserver(
         (entries) => {
@@ -99,18 +100,19 @@ export default function ViewerPage() {
             void ensureRender(pageNo);
           }
         },
-        { root: null, rootMargin: "800px 0px" }
+        { root: null, rootMargin: "1200px 0px" }
       );
 
       function mkPlaceholder(pageNo: number) {
         const wrap = document.createElement("div");
         wrap.dataset.page = String(pageNo);
         wrap.className = "rounded-xl border border-gray-100 bg-white overflow-hidden";
+        wrap.style.background = "linear-gradient(180deg, rgba(255,255,255,0.85), rgba(250,250,250,0.85))";
         wrap.style.minHeight = `${placeholderHeight}px`;
 
         const hint = document.createElement("div");
         hint.className = "px-3 py-2 text-[11px] text-gray-500";
-        hint.textContent = `? ${pageNo} ?`;
+        hint.textContent = `\u7b2c ${pageNo} \u9875`;
         wrap.appendChild(hint);
         return wrap;
       }
@@ -134,6 +136,7 @@ export default function ViewerPage() {
             canvas.width = Math.floor(viewport.width);
             canvas.height = Math.floor(viewport.height);
             canvas.className = "w-full bg-white";
+            canvas.style.display = "block";
 
             const ctx = canvas.getContext("2d")!;
             await page.render({ canvasContext: ctx, viewport }).promise;
@@ -141,6 +144,8 @@ export default function ViewerPage() {
             if (cancelled) return;
             target.innerHTML = "";
             target.appendChild(canvas);
+            target.style.minHeight = "";
+            target.style.height = "";
             rendered.add(pageNo);
 
             if (pageNo === 1) setRendering(false);
@@ -153,13 +158,18 @@ export default function ViewerPage() {
         return p;
       }
 
+      const frag = document.createDocumentFragment();
+      const placeholders: HTMLDivElement[] = [];
       for (let i = 1; i <= numPages; i++) {
         const ph = mkPlaceholder(i);
-        container.appendChild(ph);
-        io.observe(ph);
+        placeholders.push(ph);
+        frag.appendChild(ph);
       }
+      container.appendChild(frag);
+      for (const ph of placeholders) io.observe(ph);
 
       await ensureRender(1);
+      if (numPages >= 2) await ensureRender(2);
     })()
       .catch((e) => {
         setErr(normalizeViewerError(String(e?.message || e)));
@@ -371,8 +381,13 @@ export default function ViewerPage() {
 
             <div className="glass rounded-2xl p-4" onContextMenu={(e) => e.preventDefault()} tabIndex={0}>
               <div className="mb-3 text-xs text-gray-600">已验证。若退款或密码重置，页面将无法继续加载。</div>
-              {rendering && <div className="mb-3 text-xs text-gray-600">渲染中，请稍候...</div>}
-              <div ref={containerRef} className="space-y-4 select-none" />
+              {rendering && (
+                <div className="mb-3 flex items-center gap-2 text-xs text-gray-600">
+                  <Spinner className="h-4 w-4 text-gray-500" />
+                  <span>渲染中，请稍候...</span>
+                </div>
+              )}
+              <div ref={containerRef} className="space-y-2 select-none" />
             </div>
           </div>
         )}

@@ -21,4 +21,3 @@ __uvicorn_*.txt
 *.tsbuildinfo
 
 .gcloud/
-

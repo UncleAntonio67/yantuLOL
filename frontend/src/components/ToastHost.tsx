@@ -34,12 +34,12 @@ export default function ToastHost() {
   if (!items.length) return null;
 
   return (
-    <div className="fixed right-3 top-3 z-[1000] space-y-2">
+    <div className="fixed left-1/2 top-1/2 z-[1000] -translate-x-1/2 -translate-y-1/2 space-y-2 pointer-events-none">
       {items.map((t) => (
         <div
           key={t.id}
           className={[
-            "max-w-[320px] rounded-2xl border px-4 py-3 text-sm shadow-soft",
+            "max-w-[320px] rounded-2xl border px-4 py-3 text-sm shadow-soft transition transform-gpu pointer-events-auto",
             "backdrop-blur",
             toneClass(t.tone)
           ].join(" ")}
