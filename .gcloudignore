@@ -3,6 +3,8 @@
 .env.*
 backend/dev.db
 backend/storage/
+backend/.venv/
+.venv/
 **/__pycache__/
 *.pyc
 node_modules/
@@ -11,6 +13,8 @@ frontend/dist/
 logs/
 .DS_Store
 .gcloud_config/
+frontend/vite.*.log
+codex.txt
 env-*.yaml
 env-*.yml
 env-bootstrap.yaml

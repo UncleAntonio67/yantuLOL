@@ -12,6 +12,10 @@ node_modules/
 frontend/dist/
 logs/
 .DS_Store
+backend/.venv/
+.venv/
+frontend/vite.*.log
+codex.txt
 
 !.env.example
 !env-bootstrap.example.yaml
