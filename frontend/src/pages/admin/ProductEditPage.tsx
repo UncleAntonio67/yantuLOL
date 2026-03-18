@@ -14,6 +14,7 @@ import type { AdminMe, Product, ProductAttachment, ProductDetail } from "../../l
 export default function ProductEditPage() {
   const nav = useNavigate();
   const { productId } = useParams();
+  const formId = "product-edit-form";
 
   const [me, setMe] = useState<AdminMe | null>(null);
   const [detail, setDetail] = useState<ProductDetail | null>(null);
@@ -138,6 +139,7 @@ export default function ProductEditPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <Card title="基础信息" subtitle="名称、描述、价格、状态" className="lg:col-span-2">
             <form
+              id={formId}
               className="space-y-4"
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -240,16 +242,6 @@ export default function ProductEditPage() {
                 </label>
                 <div className="text-[11px] text-gray-600 leading-5">提示: 封面上传会覆盖 URL；如需移除封面请勾选“清空封面图”。</div>
               </div>
-
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <Button tone="ghost" type="button" onClick={() => nav("/admin/products")}>返回列表</Button>
-                <Button type="submit" disabled={busy}>
-                  <span className="inline-flex items-center gap-2">
-                    {busy && <Spinner className="h-4 w-4 text-white" label="保存中" />}
-                    {busy ? "保存中" : "保存"}
-                  </span>
-                </Button>
-              </div>
             </form>
           </Card>
 
@@ -323,6 +315,16 @@ export default function ProductEditPage() {
               </div>
             </div>
           </Card>
+
+          <div className="lg:col-span-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button tone="ghost" type="button" onClick={() => nav("/admin/products")}>返回列表</Button>
+            <Button type="submit" form={formId} disabled={busy}>
+              <span className="inline-flex items-center gap-2">
+                {busy && <Spinner className="h-4 w-4 text-white" label="保存中" />}
+                {busy ? "保存中" : "保存"}
+              </span>
+            </Button>
+          </div>
         </div>
       )}
     </div>

@@ -113,6 +113,14 @@ export default function AdminShell() {
     nav("/admin/login", { replace: true });
   }
 
+  function openPwDialog() {
+    setPwErr(null);
+    setPwCurrent("");
+    setPwNew("");
+    setPwNew2("");
+    setPwOpen(true);
+  }
+
   function Sidebar(props: { variant: "desktop" | "mobile" }) {
     const cls = props.variant === "desktop" ? "glass rounded-2xl shadow-soft overflow-hidden h-fit" : "h-full w-[280px] bg-white shadow-2xl";
 
@@ -156,11 +164,7 @@ export default function AdminShell() {
               className="text-xs font-semibold text-gray-600 hover:text-brand-700"
               type="button"
               onClick={() => {
-                setPwErr(null);
-                setPwCurrent("");
-                setPwNew("");
-                setPwNew2("");
-                setPwOpen(true);
+                openPwDialog();
               }}
             >
               修改密码
@@ -291,9 +295,14 @@ export default function AdminShell() {
               <HamburgerIcon />
             </button>
             <div className="text-sm font-bold text-gray-900 truncate px-3">{breadcrumb}</div>
-            <button className="text-xs font-semibold text-gray-600 hover:text-brand-700" onClick={logout}>
-              退出
-            </button>
+            <div className="flex items-center gap-2">
+              <button className="text-xs font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={openPwDialog}>
+                改密
+              </button>
+              <button className="text-xs font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={logout}>
+                退出
+              </button>
+            </div>
           </div>
         </div>
 

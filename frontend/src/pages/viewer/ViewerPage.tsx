@@ -35,6 +35,8 @@ export default function ViewerPage() {
   const [busy, setBusy] = useState(false);
   const [dlBusyId, setDlBusyId] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
+  const didRetryRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const pdfUrl = useMemo(() => {
@@ -46,6 +48,11 @@ export default function ViewerPage() {
   const watermarkHint = useMemo(() => {
     return orderId ? `订单 ${orderId} 的专属资料` : "专属资料";
   }, [orderId]);
+  // Reset one-time retry when switching to another document.
+  useEffect(() => {
+    didRetryRef.current = false;
+    setRetryNonce(0);
+  }, [pdfUrl]);
 
   // Progressive rendering: render pages lazily when they enter viewport.
   useEffect(() => {
@@ -185,7 +192,15 @@ export default function ViewerPage() {
       if (numPages >= 3) void ensureRender(3);
     })()
       .catch((e) => {
-        setErr(normalizeViewerError(String(e?.message || e)));
+        if (cancelled) return;
+        const msg = String(e?.message || e);
+        // Transient 500s can happen due to cold starts or storage hiccups. Retry once.
+        if (!didRetryRef.current && msg.includes("Unexpected server response") && msg.includes("500")) {
+          didRetryRef.current = true;
+          setTimeout(() => setRetryNonce((n) => n + 1), 800);
+          return;
+        }
+        setErr(normalizeViewerError(msg));
       })
       .finally(() => {
         if (!cancelled) setRendering(false);
@@ -209,7 +224,7 @@ export default function ViewerPage() {
         // ignore
       }
     };
-  }, [pdfUrl]);
+  }, [pdfUrl, retryNonce]);
 
   // Best-effort: block common download/print shortcuts, and make printing blank.
   useEffect(() => {
@@ -414,3 +429,8 @@ export default function ViewerPage() {
     </div>
   );
 }
+
+
+
+
+

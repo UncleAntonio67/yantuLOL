@@ -57,7 +57,7 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                             fontsize=fontsize,
                             fontname=fontname,
                             fill=(0.25, 0.25, 0.25),
-                            fill_opacity=0.09,
+                            fill_opacity=0.16,
                             morph=(origin, wm_matrix),
                             overlay=True,
                         )
@@ -73,3 +73,4 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
             doc.close()
         except Exception:
             pass
+

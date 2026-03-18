@@ -88,7 +88,7 @@ def watermark_encrypt_pdf_bytes(
                             fontsize=fontsize,
                             fontname=fontname,
                             fill=(0.25, 0.25, 0.25),
-                            fill_opacity=0.09,
+                            fill_opacity=0.16,
                             morph=(origin, wm_matrix),
                             overlay=True,
                         )
@@ -111,3 +111,4 @@ def watermark_encrypt_pdf_bytes(
             return encrypt_pdf_bytes(pdf_bytes=raw, user_password=user_password, owner_password=owner_password)
     finally:
         doc.close()
+

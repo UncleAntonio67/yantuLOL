@@ -12,7 +12,7 @@ import fitz  # PyMuPDF
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -45,6 +45,7 @@ from app.schemas.schemas import (
     TeamMemberOut,
     SystemOverviewResponse,
     OrderPasswordResponse,
+    ProductDeleteInfoResponse,
 )
 from app.services.emailer import send_delivery_email
 from app.utils.public_url import public_frontend_base_url
@@ -52,6 +53,10 @@ from app.utils import password_vault
 
 
 router = APIRouter()
+
+# Business timezone for dashboard day-boundaries (default: Asia/Shanghai, UTC+8).
+BIZ_TZ = timezone(timedelta(hours=8))
+
 _bearer = HTTPBearer(auto_error=False)
 # Simple in-memory caching for heavy monitoring/analytics endpoints.
 # Cloud Run instances are ephemeral, but caching still reduces repeated R2 list calls.
@@ -421,13 +426,7 @@ def create_product(
         raise HTTPException(status_code=400, detail="At least one PDF attachment is required")
 
     for u in uploads:
-        filename = (u.filename or "").lower()
-        if not filename.endswith(".pdf"):
-            raise HTTPException(status_code=400, detail="Only PDF is supported")
-        head = u.file.read(5)
-        u.file.seek(0)
-        if head != b"%PDF-":
-            raise HTTPException(status_code=400, detail="Invalid PDF header")
+        _validate_pdf_upload(u)
 
     product = Product(
         name=name,
@@ -567,9 +566,23 @@ def upload_product_cover_image(
     )
 
 
+
+@router.get("/products/{product_id}/delete-info", response_model=ProductDeleteInfoResponse)
+def product_delete_info(
+    product_id: str,
+    _: TeamMember = Depends(_require_super_admin),
+    db: Session = Depends(get_db),
+):
+    p = db.get(Product, product_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    order_count = int(db.scalar(select(func.count()).select_from(Order).where(Order.product_id == product_id)) or 0)
+    return ProductDeleteInfoResponse(product_id=product_id, order_count=order_count)
+
 @router.delete("/products/{product_id}")
 def delete_product(
     product_id: str,
+    cascade_orders: bool = Query(False, description="If true, also delete all orders for this product"),
     _: TeamMember = Depends(_require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -577,10 +590,14 @@ def delete_product(
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
-    has_orders = db.scalar(select(func.count()).select_from(Order).where(Order.product_id == product_id)) or 0
-    if has_orders:
-        raise HTTPException(status_code=400, detail="Product has orders and cannot be deleted")
+    order_count = int(db.scalar(select(func.count()).select_from(Order).where(Order.product_id == product_id)) or 0)
+    if order_count and not cascade_orders:
+        raise HTTPException(status_code=400, detail=f"Product has {order_count} orders. Set cascade_orders=true to delete them as well")
 
+    if order_count and cascade_orders:
+        # Delete orders first to satisfy foreign key constraints.
+        db.execute(delete(Order).where(Order.product_id == product_id))
+        db.commit()
     # Best-effort cleanup of stored files.
     atts = db.scalars(select(ProductAttachment).where(ProductAttachment.product_id == p.id)).all()
     for a in atts:
@@ -1081,7 +1098,7 @@ def send_order_email(
     if not o.buyer_email:
         raise HTTPException(status_code=400, detail="Order has no buyer_email")
 
-    subject = (payload.subject or "").strip() or "鐮旈€擫OL 涓撳睘璧勬枡鍦ㄧ嚎闃呰"
+    subject = (payload.subject or "").strip() or "研途LOL 专属资料在线阅读"
     body = _append_legal_disclaimer(payload.body or "")
     send_delivery_email(to_email=o.buyer_email, subject=subject, body=body)
     return SendEmailResponse(ok=True)
@@ -1089,38 +1106,53 @@ def send_order_email(
 
 @router.get("/dashboard/stats", response_model=DashboardStats)
 def dashboard_stats(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_db)):
-    now = datetime.now(timezone.utc)
-    today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
     # Revenue is recognized only after admin confirms receipt.
+    # "Today" is computed in business timezone (default UTC+8).
+    now_local = datetime.now(timezone.utc).astimezone(BIZ_TZ)
+    today0_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    today0_utc = today0_local.astimezone(timezone.utc)
+
     today_orders = (
         db.scalar(
             select(func.count())
             .select_from(Order)
             .where(Order.confirmed_at.is_not(None))
-            .where(Order.confirmed_at >= today0)
-            .where(Order.status == OrderStatus.active)
-        )
-        or 0
-    )
-    total_refunds = (
-        db.scalar(select(func.count()).select_from(Order).where(Order.status == OrderStatus.refunded)) or 0
-    )
-    active_products = db.scalar(select(func.count()).select_from(Product).where(Product.is_active.is_(True))) or 0
-    today_revenue = (
-        db.scalar(
-            select(func.coalesce(func.sum(Order.unit_price), 0))
-            .select_from(Order)
-            .where(Order.confirmed_at.is_not(None))
-            .where(Order.confirmed_at >= today0)
+            .where(Order.confirmed_at >= today0_utc)
             .where(Order.status == OrderStatus.active)
         )
         or 0
     )
 
+    today_revenue = (
+        db.scalar(
+            select(func.coalesce(func.sum(Order.unit_price), 0))
+            .select_from(Order)
+            .where(Order.confirmed_at.is_not(None))
+            .where(Order.confirmed_at >= today0_utc)
+            .where(Order.status == OrderStatus.active)
+        )
+        or 0
+    )
+
+    total_revenue = (
+        db.scalar(
+            select(func.coalesce(func.sum(Order.unit_price), 0))
+            .select_from(Order)
+            .where(Order.confirmed_at.is_not(None))
+            .where(Order.status == OrderStatus.active)
+        )
+        or 0
+    )
+
+    total_refunds = (
+        db.scalar(select(func.count()).select_from(Order).where(Order.status == OrderStatus.refunded)) or 0
+    )
+    active_products = db.scalar(select(func.count()).select_from(Product).where(Product.is_active.is_(True))) or 0
+
     return DashboardStats(
         today_revenue=Decimal(str(today_revenue)),
         today_orders=int(today_orders),
+        total_revenue=Decimal(str(total_revenue)),
         active_products=int(active_products),
         total_refunds=int(total_refunds),
     )
@@ -1327,3 +1359,12 @@ def get_order_password(
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to decrypt password")
     return OrderPasswordResponse(order_id=o.id, password=pw)
+
+
+
+
+
+
+
+
+

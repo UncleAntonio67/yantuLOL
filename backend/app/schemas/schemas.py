@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
@@ -157,8 +157,16 @@ class ResetOrderPasswordResponse(BaseModel):
 class DashboardStats(BaseModel):
     today_revenue: Decimal
     today_orders: int
+    total_revenue: Decimal
     active_products: int
     total_refunds: int
+
+
+
+
+class ProductDeleteInfoResponse(BaseModel):
+    product_id: str
+    order_count: int
 
 
 class DashboardSalesRankItem(BaseModel):
@@ -264,4 +272,12 @@ class SystemOverviewResponse(BaseModel):
 class OrderPasswordResponse(BaseModel):
     order_id: str
     password: str
+
+
+
+
+
+
+
+
 

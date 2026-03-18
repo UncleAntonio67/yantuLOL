@@ -61,13 +61,16 @@ export default function OrdersPage() {
   // filters
   const [buyerIdInput, setBuyerIdInput] = useState("");
   const [buyerIdQuery, setBuyerIdQuery] = useState("");
-  const [productFilter, setProductFilter] = useState("");
-  const [operatorFilter, setOperatorFilter] = useState("");
+  const [productFilterInput, setProductFilterInput] = useState("");
+  const [productFilterQuery, setProductFilterQuery] = useState("");
+  const [operatorFilterInput, setOperatorFilterInput] = useState("");
+  const [operatorFilterQuery, setOperatorFilterQuery] = useState("");
   const [createdFromInput, setCreatedFromInput] = useState("");
   const [createdToInput, setCreatedToInput] = useState("");
   const [createdFromQuery, setCreatedFromQuery] = useState("");
   const [createdToQuery, setCreatedToQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilterInput, setStatusFilterInput] = useState<string>("");
+  const [statusFilterQuery, setStatusFilterQuery] = useState<string>("");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [sortBy, setSortBy] = useState<"created_at" | "unit_price">("created_at");
@@ -138,9 +141,9 @@ export default function OrdersPage() {
     try {
       const params = new URLSearchParams();
       if (buyerIdQuery) params.set("buyer_id", buyerIdQuery);
-      if (productFilter) params.set("product_id", productFilter);
-      if (operatorFilter) params.set("operator_id", operatorFilter);
-      if (statusFilter) params.set("status_filter", statusFilter);
+      if (productFilterQuery) params.set("product_id", productFilterQuery);
+      if (operatorFilterQuery) params.set("operator_id", operatorFilterQuery);
+      if (statusFilterQuery) params.set("status_filter", statusFilterQuery);
       if (createdFromQuery) params.set("created_from", createdFromQuery);
       if (createdToQuery) params.set("created_to", createdToQuery);
       params.set("page", String(page));
@@ -167,7 +170,7 @@ export default function OrdersPage() {
   useEffect(() => {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, buyerIdQuery, productFilter, operatorFilter, statusFilter, createdFromQuery, createdToQuery, sortBy, sortDir]);
+  }, [page, buyerIdQuery, productFilterQuery, operatorFilterQuery, statusFilterQuery, createdFromQuery, createdToQuery, sortBy, sortDir]);
 
   useEffect(() => {
     if (!filtersOpen) return;
@@ -194,9 +197,9 @@ export default function OrdersPage() {
     try {
       await apiJson(`/api/admin/orders/${orderId}/refund`, { method: "POST" });
       setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status: "refunded", refunded_at: new Date().toISOString() } : o)));
-      toast.success("已吊销凭证（退款）");
+      toast.success("已退款，凭证已作废");
     } catch (ex: any) {
-      setErr(ex?.message || "吊销失败");
+      setErr(ex?.message || "退款失败");
     }
   }
 
@@ -378,153 +381,7 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      {filtersOpen && (
-        <div className="fixed inset-0 z-50 bg-black/30">
-          <div className="absolute inset-x-0 bottom-0 max-h-[92vh] glass rounded-t-3xl shadow-soft overflow-hidden">
-            <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-white/80 backdrop-blur">
-              <div className="font-black">筛选与排序</div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="text-sm font-semibold text-gray-600 hover:text-brand-700"
-                  type="button"
-                  onClick={() => {
-                    setBuyerIdInput("");
-                    setBuyerIdQuery("");
-                    setProductFilter("");
-                    setOperatorFilter("");
-                    setCreatedFromInput("");
-                    setCreatedToInput("");
-                    setCreatedFromQuery("");
-                    setCreatedToQuery("");
-                    setStatusFilter("");
-                    setSortBy("created_at");
-                    setSortDir("desc");
-                    setPage(1);
-                    setFiltersOpen(false);
-                  }}
-                >
-                  清空
-                </button>
-                <button className="text-sm font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={() => setFiltersOpen(false)}>
-                  关闭
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 space-y-4 overflow-auto">
-              <div>
-                <Label>买家ID</Label>
-                <Input value={buyerIdInput} onChange={(e) => setBuyerIdInput(e.target.value)} placeholder="包含匹配" />
-              </div>
-
-              <div>
-                <Label>商品</Label>
-                <SelectMenu
-                  value={productFilter}
-                  onChange={(v) => {
-                    setProductFilter(v);
-                    setPage(1);
-                  }}
-                  options={[{ value: "", label: "全部" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
-                  placeholder="全部"
-                  searchable
-                />
-              </div>
-
-              <div>
-                <Label>操作人</Label>
-                <SelectMenu
-                  value={operatorFilter}
-                  onChange={(v) => {
-                    setOperatorFilter(v);
-                    setPage(1);
-                  }}
-                  options={[{ value: "", label: "全部" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
-                  placeholder="全部"
-                  searchable
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>开始日期</Label>
-                  <Input type="date" value={createdFromInput} onChange={(e) => setCreatedFromInput(e.target.value)} />
-                </div>
-                <div>
-                  <Label>结束日期</Label>
-                  <Input type="date" value={createdToInput} onChange={(e) => setCreatedToInput(e.target.value)} />
-                </div>
-              </div>
-
-              <div>
-                <Label>状态</Label>
-                <Segmented
-                  size="sm"
-                  value={(statusFilter || "all") as any}
-                  options={[
-                    { value: "all", label: "全部" },
-                    { value: "active", label: "生效" },
-                    { value: "refunded", label: "已吊销" }
-                  ]}
-                  onChange={(v: any) => {
-                    setStatusFilter(v === "all" ? "" : v);
-                    setPage(1);
-                  }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>排序字段</Label>
-                  <Segmented
-                    size="sm"
-                    value={sortBy}
-                    options={[
-                      { value: "created_at", label: "时间" },
-                      { value: "unit_price", label: "金额" }
-                    ]}
-                    onChange={(v: any) => {
-                      setSortBy(v as any);
-                      setPage(1);
-                    }}
-                  />
-                </div>
-                <div>
-                  <Label>方向</Label>
-                  <Segmented
-                    size="sm"
-                    value={sortDir}
-                    options={[
-                      { value: "desc", label: "降序" },
-                      { value: "asc", label: "升序" }
-                    ]}
-                    onChange={(v: any) => {
-                      setSortDir(v as any);
-                      setPage(1);
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="sticky bottom-0 -mx-4 px-4 py-3 bg-white/80 backdrop-blur border-t border-gray-100">
-                <Button
-                  className="w-full"
-                  type="button"
-                  onClick={() => {
-                    setBuyerIdQuery(buyerIdInput);
-                    setCreatedFromQuery(createdFromInput);
-                    setCreatedToQuery(createdToInput);
-                    setPage(1);
-                    setFiltersOpen(false);
-                  }}
-                >
-                  应用筛选
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Mobile filters sheet is rendered at page root to avoid being clipped by containers. */}
 
       <div className="hidden md:flex flex-wrap items-end gap-3 rounded-2xl border border-gray-100 bg-white/80 p-3 backdrop-blur shadow-soft sticky top-2 z-10">
         <div className="min-w-[200px]">
@@ -534,11 +391,8 @@ export default function OrdersPage() {
         <div className="min-w-[220px]">
           <Label>商品</Label>
           <SelectMenu
-            value={productFilter}
-            onChange={(v) => {
-              setProductFilter(v);
-              setPage(1);
-            }}
+            value={productFilterInput}
+            onChange={(v) => setProductFilterInput(v)}
             options={[{ value: "", label: "全部" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
             placeholder="全部"
             searchable
@@ -547,11 +401,8 @@ export default function OrdersPage() {
         <div className="min-w-[180px]">
           <Label>操作人</Label>
           <SelectMenu
-            value={operatorFilter}
-            onChange={(v) => {
-              setOperatorFilter(v);
-              setPage(1);
-            }}
+            value={operatorFilterInput}
+            onChange={(v) => setOperatorFilterInput(v)}
             options={[{ value: "", label: "全部" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
             placeholder="全部"
             searchable
@@ -569,15 +420,14 @@ export default function OrdersPage() {
           <Label>状态</Label>
           <Segmented
             size="sm"
-            value={(statusFilter || "all") as any}
+            value={(statusFilterInput || "all") as any}
             options={[
               { value: "all", label: "全部" },
               { value: "active", label: "生效" },
-              { value: "refunded", label: "已吊销" }
+              { value: "refunded", label: "已退款" }
             ]}
             onChange={(v: any) => {
-              setStatusFilter(v === "all" ? "" : v);
-              setPage(1);
+              setStatusFilterInput(v === "all" ? "" : v);
             }}
           />
         </div>
@@ -587,6 +437,9 @@ export default function OrdersPage() {
             type="button"
             onClick={() => {
               setBuyerIdQuery(buyerIdInput);
+              setProductFilterQuery(productFilterInput);
+              setOperatorFilterQuery(operatorFilterInput);
+              setStatusFilterQuery(statusFilterInput);
               setCreatedFromQuery(createdFromInput);
               setCreatedToQuery(createdToInput);
               setPage(1);
@@ -636,7 +489,7 @@ export default function OrdersPage() {
                     </td>
                     <td className="px-3 py-2 text-gray-700 whitespace-nowrap">{o.operator_nickname}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      <span className={o.status === "active" ? "text-green-700" : "text-gray-500"}>{o.status === "active" ? "生效" : "已吊销"}</span>
+                      <span className={o.status === "active" ? "text-green-700" : "text-gray-500"}>{o.status === "active" ? "生效" : "已退款"}</span>
                       {o.status === "active" && (
                         <span className={o.is_confirmed ? "ml-2 text-green-700 font-semibold" : "ml-2 text-amber-700 font-semibold"}>{o.is_confirmed ? "已确认" : "待确认"}</span>
                       )}
@@ -651,13 +504,13 @@ export default function OrdersPage() {
                     <td className="px-3 py-2 text-xs text-gray-700 whitespace-nowrap">{fmtDateTime(o.created_at)}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-2">
-                        <Button tone="ghost" size="sm" type="button" onClick={() => window.open(`/view/${o.id}`, "_blank")}>阅读</Button>
+                        <Button tone="ghost" size="sm" type="button" disabled={o.status !== "active"} onClick={() => window.open(`/view/${o.id}`, "_blank")}>阅读</Button>
                         {o.status === "active" && !o.is_confirmed && (
                           <Button tone="ghost" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "confirm", orderId: o.id })}>确认收货</Button>
                         )}
                         {o.status === "active" && (
                           <>
-                            <Button tone="danger" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "refund", orderId: o.id })}>吊销</Button>
+                            <Button tone="danger" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "refund", orderId: o.id })}>退款</Button>
                             <Button tone="ghost" size="sm" type="button" onClick={() => void doResetPw(o.id)}>重置密码</Button>
                           </>
                         )}
@@ -688,7 +541,7 @@ export default function OrdersPage() {
                       o.status === "active" ? "border-green-200 bg-green-50 text-green-800" : "border-gray-200 bg-gray-50 text-gray-600"
                     ].join(" ")}
                     >
-                      {o.status === "active" ? "生效" : "已吊销"}
+                      {o.status === "active" ? "生效" : "已退款"}
                     </div>
                     {o.status === "active" && (
                       <div className={[
@@ -717,13 +570,13 @@ export default function OrdersPage() {
                 </div>
 
                 <div className="mt-2 flex flex-wrap justify-end gap-2">
-                  <Button tone="ghost" size="sm" type="button" onClick={() => window.open(`/view/${o.id}`, "_blank")}>阅读</Button>
+                  <Button tone="ghost" size="sm" type="button" disabled={o.status !== "active"} onClick={() => window.open(`/view/${o.id}`, "_blank")}>阅读</Button>
                   {o.status === "active" && !o.is_confirmed && (
                     <Button tone="ghost" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "confirm", orderId: o.id })}>确认</Button>
                   )}
                   {o.status === "active" && (
                     <>
-                      <Button tone="danger" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "refund", orderId: o.id })}>吊销</Button>
+                      <Button tone="danger" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "refund", orderId: o.id })}>退款</Button>
                       <Button tone="ghost" size="sm" type="button" onClick={() => void doResetPw(o.id)}>重置</Button>
                     </>
                   )}
@@ -740,15 +593,151 @@ export default function OrdersPage() {
 
   return (
     <div className="space-y-6">
+      {filtersOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setFiltersOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] rounded-t-3xl bg-white shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <div className="text-sm font-black text-gray-900">筛选与排序</div>
+                <div className="mt-0.5 text-[11px] text-gray-600">设置条件后点击“应用”</div>
+              </div>
+              <button className="text-sm font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={() => setFiltersOpen(false)}>
+                关闭
+              </button>
+            </div>
+
+            <div className="p-5 overflow-auto space-y-4">
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <Label>买家ID</Label>
+                  <Input value={buyerIdInput} onChange={(e) => setBuyerIdInput(e.target.value)} placeholder="包含匹配" />
+                </div>
+
+                <div>
+                  <Label>商品</Label>
+                  <SelectMenu
+                    value={productFilterInput}
+                    onChange={(v) => setProductFilterInput(v)}
+                    options={[{ value: "", label: "全部" }, ...products.map((p) => ({ value: p.id, label: p.name }))]}
+                    placeholder="全部"
+                    searchable
+                  />
+                </div>
+
+                <div>
+                  <Label>操作人</Label>
+                  <SelectMenu
+                    value={operatorFilterInput}
+                    onChange={(v) => setOperatorFilterInput(v)}
+                    options={[{ value: "", label: "全部" }, ...operators.map((u) => ({ value: u.id, label: u.nickname }))]}
+                    placeholder="全部"
+                    searchable
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>开始日期</Label>
+                    <Input type="date" value={createdFromInput} onChange={(e) => setCreatedFromInput(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>结束日期</Label>
+                    <Input type="date" value={createdToInput} onChange={(e) => setCreatedToInput(e.target.value)} />
+                  </div>
+                </div>
+
+                <div>
+                  <Label>状态</Label>
+                  <Segmented
+                    size="sm"
+                    value={(statusFilterInput || "all") as any}
+                    options={[
+                      { value: "all", label: "全部" },
+                      { value: "active", label: "生效" },
+                      { value: "refunded", label: "已退款" }
+                    ]}
+                    onChange={(v: any) => setStatusFilterInput(v === "all" ? "" : v)}
+                  />
+                </div>
+
+                <div>
+                  <Label>排序</Label>
+                  <div className="flex items-center gap-2">
+                    <Segmented
+                      size="sm"
+                      value={sortBy}
+                      options={[
+                        { value: "created_at", label: "时间" },
+                        { value: "unit_price", label: "金额" }
+                      ]}
+                      onChange={(v: any) => setSortBy(v as any)}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-xl border border-gray-200 bg-white/80 px-3 py-2 text-xs font-semibold text-gray-800"
+                      onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+                      aria-label="toggle sort direction"
+                    >
+                      {sortDir === "asc" ? "↑ 升序" : "↓ 降序"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-between gap-2">
+                <Button
+                  tone="ghost"
+                  type="button"
+                  onClick={() => {
+                    setBuyerIdInput("");
+                    setBuyerIdQuery("");
+                    setProductFilterInput("");
+                    setProductFilterQuery("");
+                    setOperatorFilterInput("");
+                    setOperatorFilterQuery("");
+                    setStatusFilterInput("");
+                    setStatusFilterQuery("");
+                    setCreatedFromInput("");
+                    setCreatedToInput("");
+                    setCreatedFromQuery("");
+                    setCreatedToQuery("");
+                    setPage(1);
+                    setFiltersOpen(false);
+                  }}
+                >
+                  清空
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setBuyerIdQuery(buyerIdInput);
+                    setProductFilterQuery(productFilterInput);
+                    setOperatorFilterQuery(operatorFilterInput);
+                    setStatusFilterQuery(statusFilterInput);
+                    setCreatedFromQuery(createdFromInput);
+                    setCreatedToQuery(createdToInput);
+                    setPage(1);
+                    setFiltersOpen(false);
+                  }}
+                >
+                  应用
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog
         open={!!confirmDlg}
-        title={confirmDlg?.kind === "refund" ? "吊销凭证" : "确认收货"}
+        title={confirmDlg?.kind === "refund" ? "订单退款" : "确认收货"}
         message={
           confirmDlg?.kind === "refund"
-            ? "确定要吊销该订单凭证吗？吊销后买家将无法继续在线阅读。"
+            ? "确定要对该订单进行退款吗？退款后买家将无法继续在线阅读或下载，且该订单不再计入收入。"
             : "确定要确认收货吗？确认后将开放下载并计入营收。"
         }
-        confirmText={confirmDlg?.kind === "refund" ? "确认吊销" : "确认收货"}
+        confirmText={confirmDlg?.kind === "refund" ? "确认退款" : "确认收货"}
         cancelText="取消"
         danger={confirmDlg?.kind === "refund"}
         busy={confirmBusy}

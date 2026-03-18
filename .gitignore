@@ -16,6 +16,7 @@ backend/.venv/
 .venv/
 frontend/vite.*.log
 codex.txt
+新建 文本文档.txt
 
 !.env.example
 !env-bootstrap.example.yaml

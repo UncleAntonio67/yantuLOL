@@ -1,4 +1,4 @@
-export type AdminMe = {
+﻿export type AdminMe = {
   id: string;
   username: string;
   nickname: string;
@@ -8,6 +8,7 @@ export type AdminMe = {
 export type DashboardStats = {
   today_revenue: string;
   today_orders: number;
+  total_revenue: string;
   active_products: number;
   total_refunds: number;
 };
@@ -160,4 +161,6 @@ export type SystemOverview = {
     prefixes: SystemR2PrefixUsage[];
   };
 };
+
+
 

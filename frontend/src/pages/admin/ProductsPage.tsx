@@ -25,8 +25,9 @@ export default function ProductsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const [deleteDlg, setDeleteDlg] = useState<{ productId: string; name: string } | null>(null);
+  const [deleteDlg, setDeleteDlg] = useState<{ productId: string; name: string; orderCount: number } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteInfoBusy, setDeleteInfoBusy] = useState(false);
 
   const pageSize = 10;
   const canManage = me?.role === "super_admin";
@@ -64,7 +65,16 @@ export default function ProductsPage() {
   }, [page]);
 
   async function doDelete(productId: string, name: string) {
-    setDeleteDlg({ productId, name });
+    setErr(null);
+    setDeleteInfoBusy(true);
+    try {
+      const info = await apiJson<{ product_id: string; order_count: number }>(`/api/admin/products/${productId}/delete-info`);
+      setDeleteDlg({ productId, name, orderCount: Number(info.order_count || 0) });
+    } catch (ex: any) {
+      setErr(ex?.message || "无法获取删除信息");
+    } finally {
+      setDeleteInfoBusy(false);
+    }
   }
 
   async function doDeleteConfirmed() {
@@ -72,7 +82,9 @@ export default function ProductsPage() {
     setErr(null);
     setDeleteBusy(true);
     try {
-      await apiJson(`/api/admin/products/${deleteDlg.productId}`, { method: "DELETE" });
+      const cascade = deleteDlg.orderCount > 0;
+      const qs = cascade ? "?cascade_orders=true" : "";
+      await apiJson(`/api/admin/products/${deleteDlg.productId}${qs}`, { method: "DELETE" });
       toast.success("已删除商品");
       setDeleteDlg(null);
       if (page !== 1 && items.length === 1) setPage((p) => Math.max(1, p - 1));
@@ -89,8 +101,14 @@ export default function ProductsPage() {
       <ConfirmDialog
         open={!!deleteDlg}
         title="删除商品"
-        message={deleteDlg ? `确定要删除商品：${deleteDlg.name} 吗？该操作不可恢复。` : ""}
-        confirmText="确认删除"
+        message={
+          deleteDlg
+            ? deleteDlg.orderCount > 0
+              ? `该商品关联 ${deleteDlg.orderCount} 条发货记录。确认删除将同时删除这些发货记录（不可恢复）。`
+              : `确定要删除商品：${deleteDlg.name} 吗？该操作不可恢复。`
+            : ""
+        }
+        confirmText={deleteDlg && deleteDlg.orderCount > 0 ? "删除商品并删除发货记录" : "确认删除"}
         cancelText="取消"
         danger
         busy={deleteBusy}
@@ -166,7 +184,7 @@ export default function ProductsPage() {
                             编辑
                           </Button>
                           {canManage && (
-                            <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)}>
+                            <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)} disabled={deleteInfoBusy}>
                               删除
                             </Button>
                           )}
@@ -211,7 +229,7 @@ export default function ProductsPage() {
                       编辑
                     </Button>
                     {canManage && (
-                      <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)}>
+                      <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)} disabled={deleteInfoBusy}>
                         删除
                       </Button>
                     )}
