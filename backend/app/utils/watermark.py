@@ -1,6 +1,19 @@
 ﻿from __future__ import annotations
 
 import fitz  # PyMuPDF
+ 
+
+def _is_readable_pdf_bytes(data: bytes) -> bool:
+    if not data:
+        return False
+    try:
+        d = fitz.open(stream=data, filetype="pdf")
+        try:
+            return int(getattr(d, "page_count", 0) or 0) > 0
+        finally:
+            d.close()
+    except Exception:
+        return False
 
 
 def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str | None) -> bytes:
@@ -65,7 +78,12 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                         # Do not fail the request. Best-effort: skip this stamp.
                         continue
 
-        return doc.tobytes(garbage=4, deflate=True)
+        out = doc.tobytes(garbage=4, deflate=True)
+        # Some PDFs can become unreadable after rewriting; never block viewing.
+        # Fall back to original bytes if the output isn't readable.
+        if not _is_readable_pdf_bytes(out):
+            return pdf_bytes
+        return out
     except Exception:
         return pdf_bytes
     finally:

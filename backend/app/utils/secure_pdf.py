@@ -5,6 +5,20 @@ import hashlib
 import fitz  # PyMuPDF
 
 
+def _is_openable_pdf_bytes(data: bytes) -> bool:
+    if not data:
+        return False
+    try:
+        d = fitz.open(stream=data, filetype="pdf")
+        try:
+            # Encrypted PDFs will set needs_pass=True, which is expected here.
+            return int(getattr(d, "page_count", 0) or 0) > 0 or bool(getattr(d, "needs_pass", False))
+        finally:
+            d.close()
+    except Exception:
+        return False
+
+
 def _normalize_owner_password(owner_password: str) -> str:
     """Normalize owner password to a stable short string.
 
@@ -97,7 +111,7 @@ def watermark_encrypt_pdf_bytes(
                         continue
 
         try:
-            return doc.write(
+            out = doc.write(
                 garbage=4,
                 deflate=True,
                 encryption=fitz.PDF_ENCRYPT_AES_256,
@@ -105,6 +119,9 @@ def watermark_encrypt_pdf_bytes(
                 owner_pw=_normalize_owner_password(owner_password),
                 user_pw=(user_password or "").strip(),
             )
+            if not _is_openable_pdf_bytes(out):
+                raise RuntimeError("encrypted pdf bytes are not openable")
+            return out
         except Exception:
             # Last resort: drop watermark but keep encryption.
             raw = doc.tobytes(garbage=4, deflate=True)
