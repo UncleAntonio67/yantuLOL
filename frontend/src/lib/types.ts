@@ -79,6 +79,11 @@ export type TeamMember = {
   created_at: string;
 };
 
+export type TeamMemberDeleteInfo = {
+  member_id: string;
+  order_count: number;
+};
+
 export type Page<T> = {
   items: T[];
   total: number;

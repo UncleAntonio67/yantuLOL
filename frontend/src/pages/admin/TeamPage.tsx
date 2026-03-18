@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
+import ConfirmDialog from "../../components/ConfirmDialog";
 import { Input, Label } from "../../components/Field";
 import Segmented from "../../components/Segmented";
 import { apiJson, apiJsonCached } from "../../lib/api";
 import { toast } from "../../lib/toast";
-import type { AdminMe, TeamMember } from "../../lib/types";
+import type { AdminMe, TeamMember, TeamMemberDeleteInfo } from "../../lib/types";
 
 export default function TeamPage() {
   const [me, setMe] = useState<AdminMe | null>(null);
@@ -13,6 +14,9 @@ export default function TeamPage() {
   const [err, setErr] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [newRole, setNewRole] = useState<"normal_admin" | "super_admin">("normal_admin");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteDlg, setDeleteDlg] = useState<{ member: TeamMember; orderCount: number } | null>(null);
+  const [deleteInfoBusyId, setDeleteInfoBusyId] = useState<string | null>(null);
 
   const canCreate = me?.role === "super_admin";
 
@@ -32,8 +36,62 @@ export default function TeamPage() {
     refresh();
   }, []);
 
+  async function askDelete(member: TeamMember) {
+    if (!canCreate) return;
+    if (me && member.id === me.id) {
+      toast.error("不能删除当前登录账号");
+      return;
+    }
+    setErr(null);
+    setDeleteInfoBusyId(member.id);
+    try {
+      const info = await apiJson<TeamMemberDeleteInfo>(`/api/admin/team/${member.id}/delete-info`);
+      setDeleteDlg({ member, orderCount: Number(info.order_count || 0) });
+    } catch (ex: any) {
+      setErr(ex?.message || "无法获取删除信息");
+    } finally {
+      setDeleteInfoBusyId(null);
+    }
+  }
+
+  async function doDeleteConfirmed() {
+    if (!deleteDlg) return;
+    setErr(null);
+    setDeleteBusy(true);
+    try {
+      const cascade = deleteDlg.orderCount > 0;
+      const qs = cascade ? "?cascade_orders=true" : "";
+      await apiJson(`/api/admin/team/${deleteDlg.member.id}${qs}`, { method: "DELETE" });
+      toast.success("管理员已删除");
+      setDeleteDlg(null);
+      await refresh();
+    } catch (ex: any) {
+      setErr(ex?.message || "删除失败");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
+      <ConfirmDialog
+        open={!!deleteDlg}
+        title="删除管理员"
+        message={
+          deleteDlg
+            ? deleteDlg.orderCount > 0
+              ? `该账号关联 ${deleteDlg.orderCount} 条订单记录。确认删除将同时删除这些订单（不可恢复）。`
+              : `确定要删除管理员：${deleteDlg.member.nickname}（${deleteDlg.member.username}）吗？该操作不可恢复。`
+            : ""
+        }
+        confirmText={deleteDlg && deleteDlg.orderCount > 0 ? "删除账号并删除订单" : "确认删除"}
+        cancelText="取消"
+        danger
+        busy={deleteBusy}
+        onClose={() => setDeleteDlg(null)}
+        onConfirm={() => void doDeleteConfirmed()}
+      />
+
       <div className="flex items-end justify-between">
         <div className="hidden md:block">
           <div className="text-2xl font-black">团队管理</div>
@@ -56,6 +114,20 @@ export default function TeamPage() {
               </div>
               <div className="mt-2 text-xs text-gray-600">登录名: {m.username}</div>
               <div className="mt-1 text-xs text-gray-600">状态: {m.is_active ? "启用" : "禁用"}</div>
+
+              {canCreate && (
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button
+                    tone="danger"
+                    size="sm"
+                    type="button"
+                    disabled={deleteBusy || deleteInfoBusyId === m.id || (me ? m.id === me.id : false)}
+                    onClick={() => void askDelete(m)}
+                  >
+                    删除
+                  </Button>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -42,6 +42,7 @@ from app.schemas.schemas import (
     SendEmailRequest,
     SendEmailResponse,
     TeamMemberCreate,
+    TeamMemberDeleteInfoResponse,
     TeamMemberOut,
     SystemOverviewResponse,
     OrderPasswordResponse,
@@ -304,6 +305,73 @@ def create_team_member(
         is_active=user.is_active,
         created_at=user.created_at,
     )
+
+@router.get("/team/{member_id}/delete-info", response_model=TeamMemberDeleteInfoResponse)
+def team_member_delete_info(
+    member_id: str,
+    _: TeamMember = Depends(_require_super_admin),
+    db: Session = Depends(get_db),
+):
+    m = db.get(TeamMember, member_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="Team member not found")
+    order_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Order)
+            .where((Order.operator_id == member_id) | (Order.confirmed_by == member_id) | (Order.refunded_by == member_id))
+        )
+        or 0
+    )
+    return TeamMemberDeleteInfoResponse(member_id=member_id, order_count=order_count)
+
+
+@router.delete("/team/{member_id}")
+def delete_team_member(
+    member_id: str,
+    cascade_orders: bool = Query(False, description="If true, also delete all orders associated with this member"),
+    admin: TeamMember = Depends(_require_super_admin),
+    db: Session = Depends(get_db),
+):
+    if member_id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    m = db.get(TeamMember, member_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="Team member not found")
+
+    if m.role == Role.super_admin:
+        super_cnt = int(
+            db.scalar(select(func.count()).select_from(TeamMember).where(TeamMember.role == Role.super_admin)) or 0
+        )
+        if super_cnt <= 1:
+            raise HTTPException(status_code=400, detail="Cannot delete the last super admin")
+
+    order_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Order)
+            .where((Order.operator_id == member_id) | (Order.confirmed_by == member_id) | (Order.refunded_by == member_id))
+        )
+        or 0
+    )
+    if order_count and not cascade_orders:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Team member has {order_count} orders. Set cascade_orders=true to delete them as well",
+        )
+
+    if order_count and cascade_orders:
+        db.execute(
+            delete(Order).where(
+                (Order.operator_id == member_id) | (Order.confirmed_by == member_id) | (Order.refunded_by == member_id)
+            )
+        )
+        db.commit()
+
+    db.delete(m)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/products", response_model=list[ProductOut])

@@ -6,17 +6,19 @@ import Spinner from "../../components/Spinner";
 import { Input, Label } from "../../components/Field";
 import { downloadViewerPdf, fetchViewerMeta, viewerAuth } from "../../lib/api";
 import type { ViewerMeta } from "../../lib/types";
-import * as pdfjsLib from "pdfjs-dist";
+import "../../lib/polyfills";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
 // Vite: point worker to bundled module.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-(pdfjsLib as any).GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+(pdfjsLib as any).GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
 
 function normalizeViewerError(msg: string) {
   const m = String(msg || "").trim();
   if (!m) return "加载失败";
   if (m.includes("Failed to fetch") || m.includes("NetworkError")) return "网络错误，请稍后重试";
   if (m.startsWith("HTTP 5")) return `服务暂时不可用（${m}）`;
+  if (m.includes("getOrInsertComputed")) return "当前浏览器兼容性不足，建议点击“在新窗口打开 PDF”或使用系统浏览器打开";
   if (m.includes("file not found") || m.includes("not found")) return "文件不存在或已被删除，请联系管理员";
   if (m.includes("No readable PDF")) return "该商品暂无可阅读的 PDF 文件，请联系管理员上传";
   if (m.includes("Invalid password")) return "密码错误";
@@ -38,6 +40,13 @@ export default function ViewerPage() {
   const [retryNonce, setRetryNonce] = useState(0);
   const didRetryRef = useRef(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const isWeChat = useMemo(() => {
+    try {
+      return /MicroMessenger/i.test(navigator.userAgent || "");
+    } catch {
+      return false;
+    }
+  }, []);
 
   const pdfUrl = useMemo(() => {
     if (!viewerToken) return null;
@@ -57,11 +66,13 @@ export default function ViewerPage() {
   // Progressive rendering: render pages lazily when they enter viewport.
   useEffect(() => {
     if (!pdfUrl || !containerRef.current) return;
+    const url = pdfUrl;
 
     let cancelled = false;
     let io: IntersectionObserver | null = null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let pdf: any = null;
+    let aborter: AbortController | null = null;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const getDocument = (pdfjsLib as any).getDocument;
@@ -70,19 +81,42 @@ export default function ViewerPage() {
     container.innerHTML = "";
     setRendering(true);
 
-    // Prefer url mode so pdf.js can do range fetching.
+    async function createLoadingTask() {
+      // WeChat WebView compatibility: it can be fragile with module workers/range requests.
+      // Use "data" mode to maximize success rate.
+      if (isWeChat) {
+        aborter = new AbortController();
+        const resp = await fetch(url, { signal: aborter.signal, credentials: "omit" });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = await resp.arrayBuffer();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return getDocument({
+          data: new Uint8Array(buf),
+          disableWorker: true,
+          disableAutoFetch: true,
+          disableStream: true,
+          disableRange: true
+        }) as any;
+      }
+
+      // Prefer url mode so pdf.js can do range fetching (fast on normal browsers).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return getDocument({
+        url,
+        withCredentials: false,
+        disableAutoFetch: false,
+        disableStream: false,
+        disableRange: false,
+        rangeChunkSize: 1 << 16
+      }) as any;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const loadingTask: any = getDocument({
-      url: pdfUrl,
-      withCredentials: false,
-      disableAutoFetch: false,
-      disableStream: false,
-      disableRange: false,
-      rangeChunkSize: 1 << 16
-    });
+    let loadingTask: any = null;
 
     (async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      loadingTask = await createLoadingTask();
       pdf = await loadingTask.promise;
       if (cancelled) return;
 
@@ -101,17 +135,20 @@ export default function ViewerPage() {
       const inflight = new Map<number, Promise<void>>();
       const placeholderHeight = Math.max(160, Math.floor(vp1.height * fitScale));
 
-      io = new IntersectionObserver(
-        (entries) => {
-          for (const e of entries) {
-            const el = e.target as HTMLDivElement;
-            const pageNo = Number(el.dataset.page || "0");
-            if (!e.isIntersecting || !pageNo) continue;
-            void ensureRender(pageNo);
-          }
-        },
-        { root: null, rootMargin: "900px 0px" }
-      );
+      const canIO = typeof IntersectionObserver !== "undefined";
+      if (canIO) {
+        io = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              const el = e.target as HTMLDivElement;
+              const pageNo = Number(el.dataset.page || "0");
+              if (!e.isIntersecting || !pageNo) continue;
+              void ensureRender(pageNo);
+            }
+          },
+          { root: null, rootMargin: "900px 0px" }
+        );
+      }
 
       function mkPlaceholder(pageNo: number) {
         const wrap = document.createElement("div");
@@ -185,11 +222,21 @@ export default function ViewerPage() {
         frag.appendChild(ph);
       }
       container.appendChild(frag);
-      for (const ph of placeholders) io.observe(ph);
+      if (io) {
+        for (const ph of placeholders) io.observe(ph);
+      }
 
       await ensureRender(1);
       if (numPages >= 2) void ensureRender(2);
       if (numPages >= 3) void ensureRender(3);
+      if (!io) {
+        // Older WebViews: no IO, just render sequentially (best-effort).
+        for (let i = 4; i <= numPages; i++) {
+          if (cancelled) break;
+          // eslint-disable-next-line no-await-in-loop
+          await ensureRender(i);
+        }
+      }
     })()
       .catch((e) => {
         if (cancelled) return;
@@ -210,6 +257,11 @@ export default function ViewerPage() {
       cancelled = true;
       try {
         io?.disconnect();
+      } catch {
+        // ignore
+      }
+      try {
+        aborter?.abort();
       } catch {
         // ignore
       }
@@ -419,6 +471,13 @@ export default function ViewerPage() {
                 <div className="mb-3 flex items-center justify-center">
                   <Spinner className="h-5 w-5 text-gray-500" label="渲染中" />
                   <span className="sr-only">渲染中</span>
+                </div>
+              )}
+              {err && pdfUrl && (
+                <div className="mb-3 flex justify-center">
+                  <Button tone="ghost" type="button" onClick={() => window.open(pdfUrl, "_blank")}>
+                    在新窗口打开 PDF
+                  </Button>
                 </div>
               )}
               <div ref={containerRef} className="space-y-2 select-none" />

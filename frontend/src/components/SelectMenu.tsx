@@ -112,7 +112,7 @@ export default function SelectMenu(props: Props) {
           <div className="fixed inset-0 z-50 md:hidden">
             <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
             <div className="absolute inset-x-0 bottom-0">
-              <div className="glass mx-auto w-full max-w-lg rounded-t-3xl shadow-soft overflow-hidden">
+              <div className="mx-auto w-full max-w-lg rounded-t-3xl bg-white shadow-2xl overflow-hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
                   <div className="font-black text-gray-900">选择</div>
                   <button className="text-sm font-semibold text-gray-600 hover:text-brand-700" type="button" onClick={() => setOpen(false)}>

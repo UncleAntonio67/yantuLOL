@@ -46,6 +46,10 @@ class TeamMemberCreate(BaseModel):
     nickname: str
     role: Literal["super_admin", "normal_admin"] = "normal_admin"
 
+class TeamMemberDeleteInfoResponse(BaseModel):
+    member_id: str
+    order_count: int
+
 
 class ProductOut(BaseModel):
     id: str
