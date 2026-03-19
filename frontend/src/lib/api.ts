@@ -16,6 +16,26 @@ export class ApiErrorImpl extends Error {
   }
 }
 
+function isWeChatUA(): boolean {
+  try {
+    return /MicroMessenger/i.test(navigator.userAgent || "");
+  } catch {
+    return false;
+  }
+}
+
+function normalizeNetworkErrorMessage(msg: string): string {
+  const m = String(msg || "").trim();
+  if (!m) return "网络错误，请稍后重试";
+  const lower = m.toLowerCase();
+  if (lower.includes("abort") || lower.includes("timeout")) return "请求超时，请稍后重试";
+  if (m.includes("Failed to fetch") || lower.includes("networkerror")) {
+    if (isWeChatUA()) return "网络错误（微信内可能不稳定）。建议点击右上角用系统浏览器打开，或稍后重试。";
+    return "网络错误，请检查网络后重试";
+  }
+  return m;
+}
+
 async function readError(res: Response): Promise<ApiErrorImpl> {
   let message = res.statusText || `HTTP ${res.status}`;
 
@@ -56,9 +76,29 @@ async function readError(res: Response): Promise<ApiErrorImpl> {
 
 async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   try {
-    return await fetch(input, init);
+    const controller = init?.signal ? null : new AbortController();
+    const signal = init?.signal || controller?.signal;
+
+    // Conservative timeouts: WeChat WebView tends to hang or fail silently.
+    const method = (init?.method || "GET").toUpperCase();
+    const isForm = init?.body instanceof FormData;
+    const timeoutMs =
+      method === "GET" ? 20_000 :
+      isForm ? 180_000 :
+      30_000;
+
+    let timer: number | null = null;
+    if (controller) {
+      timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    }
+
+    try {
+      return await fetch(input, { ...init, signal });
+    } finally {
+      if (timer) window.clearTimeout(timer);
+    }
   } catch (e: any) {
-    const msg = String(e?.message || e || "网络错误");
+    const msg = normalizeNetworkErrorMessage(String(e?.message || e || "网络错误"));
     throw new ApiErrorImpl(0, msg);
   }
 }

@@ -6,6 +6,7 @@ import Segmented from "../../components/Segmented";
 import Pagination from "../../components/Pagination";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import Spinner from "../../components/Spinner";
+import LoadingOverlay from "../../components/LoadingOverlay";
 import { Input, Label } from "../../components/Field";
 import SelectMenu from "../../components/SelectMenu";
 import { apiJson, apiJsonCached } from "../../lib/api";
@@ -91,6 +92,13 @@ export default function OrdersPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const canDeleteOrders = me?.role === "super_admin";
+  const isWeChat = React.useMemo(() => {
+    try {
+      return /MicroMessenger/i.test(navigator.userAgent || "");
+    } catch {
+      return false;
+    }
+  }, []);
 
   async function safeCopy(text: string, okMsg: string = "已复制") {
     const t = String(text || "");
@@ -314,6 +322,7 @@ export default function OrdersPage() {
 
   const deliverPanel = (
     <Card title="新建发货" subtitle="手动创建订单并生成链接与密码（仅支持图文文案）">
+      <LoadingOverlay open={Boolean(deliverBusy && isWeChat)} label="生成中，请稍候…" />
       <form
         className="space-y-4"
         onSubmit={async (e) => {
@@ -331,7 +340,11 @@ export default function OrdersPage() {
             await safeCopy(res.password, "密码已复制");
             toast.success("发货信息已生成");
           } catch (ex: any) {
-            setErr(ex?.message || "发货失败");
+            const msg = String(ex?.message || "发货失败");
+            if (isWeChat && (msg.includes("网络错误") || msg.includes("Failed to fetch"))) {
+              toast.info("微信内网络可能不稳定。若你不确定是否已创建成功，请切到“发货记录”查看最新一条。", 3200);
+            }
+            setErr(msg);
           } finally {
             setDeliverBusy(false);
           }
