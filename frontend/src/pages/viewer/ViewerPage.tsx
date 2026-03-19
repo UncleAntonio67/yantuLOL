@@ -7,11 +7,20 @@ import { Input, Label } from "../../components/Field";
 import { downloadViewerPdf, fetchViewerMeta, viewerAuth } from "../../lib/api";
 import type { ViewerMeta } from "../../lib/types";
 import "../../lib/polyfills";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 
-// Vite: point worker to bundled module.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(pdfjsLib as any).GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
+// Lazy-load PDF.js only when needed. This improves initial load performance and
+// avoids fragile module evaluation in some mobile WebViews (notably WeChat).
+let _pdfjsPromise: Promise<any> | null = null;
+async function loadPdfjs() {
+  if (_pdfjsPromise) return _pdfjsPromise;
+  _pdfjsPromise = import("pdfjs-dist/legacy/build/pdf.mjs").then((mod) => {
+    // Vite: point worker to bundled module.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (mod as any).GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
+    return mod as any;
+  });
+  return _pdfjsPromise;
+}
 
 function normalizeViewerError(msg: string) {
   const m = String(msg || "").trim();
@@ -47,7 +56,8 @@ export default function ViewerPage() {
       return false;
     }
   }, []);
-  const [viewMode, setViewMode] = useState<"native" | "pdfjs">("pdfjs");
+  // Default to native mode inside WeChat to avoid a "first render" PDF.js attempt.
+  const [viewMode, setViewMode] = useState<"native" | "pdfjs">(() => (isWeChat ? "native" : "pdfjs"));
 
   const pdfUrl = useMemo(() => {
     if (!viewerToken) return null;
@@ -55,11 +65,17 @@ export default function ViewerPage() {
     return `/api/viewer/document/${encodeURIComponent(viewerToken)}${suffix}`;
   }, [viewerToken, activeAttachmentId]);
 
+  const pdfUrlFull = useMemo(() => {
+    if (!pdfUrl) return null;
+    // Full-content mode avoids Range edge-cases in some built-in PDF viewers.
+    return pdfUrl.includes("?") ? `${pdfUrl}&full=1` : `${pdfUrl}?full=1`;
+  }, [pdfUrl]);
+
   // Default to native viewer inside WeChat; pdf.js can be fragile there.
   useEffect(() => {
     if (!viewerToken) return;
     if (!isWeChat) return;
-    setViewMode((m) => (m === "pdfjs" ? "native" : m));
+    setViewMode("native");
   }, [viewerToken, isWeChat]);
 
   const watermarkHint = useMemo(() => {
@@ -83,19 +99,21 @@ export default function ViewerPage() {
     let pdf: any = null;
     let aborter: AbortController | null = null;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const getDocument = (pdfjsLib as any).getDocument;
-
     const container = containerRef.current;
     container.innerHTML = "";
     setRendering(true);
 
     async function createLoadingTask() {
+      const pdfjsLib = await loadPdfjs();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const getDocument = (pdfjsLib as any).getDocument;
+
       // WeChat WebView compatibility: it can be fragile with module workers/range requests.
       // Use "data" mode to maximize success rate.
       if (isWeChat) {
         aborter = new AbortController();
-        const resp = await fetch(url, { signal: aborter.signal, credentials: "omit" });
+        // Force full mode to avoid Range quirks.
+        const resp = await fetch(pdfUrlFull || url, { signal: aborter.signal, credentials: "omit" });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const buf = await resp.arrayBuffer();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -496,7 +514,7 @@ export default function ViewerPage() {
                   </div>
                   {pdfUrl ? (
                     <iframe
-                      src={pdfUrl}
+                      src={pdfUrlFull || pdfUrl}
                       title="pdf"
                       className="w-full h-[75vh] rounded-xl border border-gray-100 bg-white"
                     />

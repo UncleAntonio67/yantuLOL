@@ -256,32 +256,51 @@ def viewer_document(viewer_token: str, attachment_id: str, request: Request, db:
             out = src
         _wm_cache_put(cache_key, out)
 
+    full = str(request.query_params.get("full") or "").strip() in ("1", "true", "yes")
+
     headers = {
         "Content-Type": "application/pdf",
         "Cache-Control": "private, max-age=60",
-        "Content-Disposition": f'inline; filename="{Path(filename).name}"',
+        # Some mobile WebViews (and PDFs with CJK filenames) are sensitive to non-ASCII Content-Disposition filename.
+        # Inline viewing doesn't need a filename at all, so keep it minimal.
+        "Content-Disposition": "inline",
         "X-Content-Type-Options": "nosniff",
         # Allow Chrome/WeChat built-in PDF viewers (often extension/webview origins) to fetch the PDF.
         # Access is still protected by the viewer_token in the URL and order status checks.
         "Cross-Origin-Resource-Policy": "cross-origin",
-        "Accept-Ranges": "bytes",
     }
+    if not full:
+        headers["Accept-Ranges"] = "bytes"
 
     total = len(out)
-    if range_hdr:
+    if range_hdr and not full:
         rh = str(range_hdr).strip().lower()
         if rh.startswith("bytes="):
             spec = rh[len("bytes="):]
             if "," not in spec:
                 start_s, _, end_s = spec.partition("-")
-                try:
-                    start = int(start_s) if start_s else 0
-                except Exception:
-                    start = 0
-                try:
-                    end = int(end_s) if end_s else (total - 1)
-                except Exception:
+                # RFC 7233:
+                # - bytes=START-END
+                # - bytes=START-
+                # - bytes=-SUFFIX_LEN
+                if not start_s and end_s:
+                    try:
+                        suffix_len = int(end_s)
+                    except Exception:
+                        suffix_len = 0
+                    suffix_len = max(0, suffix_len)
+                    start = max(0, total - suffix_len) if suffix_len else 0
                     end = total - 1
+                else:
+                    try:
+                        start = int(start_s) if start_s else 0
+                    except Exception:
+                        start = 0
+                    try:
+                        end = int(end_s) if end_s else (total - 1)
+                    except Exception:
+                        end = total - 1
+
                 start = max(0, start)
                 if total <= 0 or start >= total:
                     h = dict(headers)

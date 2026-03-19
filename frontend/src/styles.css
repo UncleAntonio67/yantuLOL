@@ -39,6 +39,17 @@ body {
   backdrop-filter: blur(12px);
 }
 
+/* Mobile WebViews (especially WeChat) can struggle with backdrop-filter + heavy gradients. */
+@media (max-width: 640px) {
+  body {
+    background: linear-gradient(180deg, var(--paper), #ffffff 68%);
+  }
+
+  .glass {
+    backdrop-filter: none;
+  }
+}
+
 /* Tailwind's line-clamp plugin isn't enabled in this repo; keep a minimal clamp utility. */
 .line-clamp-2 {
   overflow: hidden;

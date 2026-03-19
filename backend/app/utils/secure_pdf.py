@@ -42,6 +42,9 @@ def encrypt_pdf_bytes(*, pdf_bytes: bytes, user_password: str, owner_password: s
         return doc.write(
             garbage=4,
             deflate=True,
+            # Classic layout improves compatibility with mobile WebViews and some built-in PDF viewers.
+            use_objstms=False,
+            use_xref_streams=False,
             encryption=fitz.PDF_ENCRYPT_AES_256,
             permissions=0,  # best-effort: disable print/copy/edit in compliant readers
             owner_pw=_normalize_owner_password(owner_password),
@@ -114,6 +117,8 @@ def watermark_encrypt_pdf_bytes(
             out = doc.write(
                 garbage=4,
                 deflate=True,
+                use_objstms=False,
+                use_xref_streams=False,
                 encryption=fitz.PDF_ENCRYPT_AES_256,
                 permissions=0,
                 owner_pw=_normalize_owner_password(owner_password),
@@ -124,7 +129,7 @@ def watermark_encrypt_pdf_bytes(
             return out
         except Exception:
             # Last resort: drop watermark but keep encryption.
-            raw = doc.tobytes(garbage=4, deflate=True)
+            raw = doc.write(garbage=4, deflate=True, use_objstms=False, use_xref_streams=False)
             return encrypt_pdf_bytes(pdf_bytes=raw, user_password=user_password, owner_password=owner_password)
     finally:
         doc.close()

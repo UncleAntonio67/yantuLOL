@@ -70,7 +70,8 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                             fontsize=fontsize,
                             fontname=fontname,
                             fill=(0.25, 0.25, 0.25),
-                            fill_opacity=0.16,
+                            # Keep it readable but not overpowering.
+                            fill_opacity=0.20,
                             morph=(origin, wm_matrix),
                             overlay=True,
                         )
@@ -78,7 +79,8 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                         # Do not fail the request. Best-effort: skip this stamp.
                         continue
 
-        out = doc.tobytes(garbage=4, deflate=True)
+        # Prefer classic xref tables/object layout for maximum compatibility across mobile WebViews.
+        out = doc.write(garbage=4, deflate=True, use_objstms=False, use_xref_streams=False)
         # Some PDFs can become unreadable after rewriting; never block viewing.
         # Fall back to original bytes if the output isn't readable.
         if not _is_readable_pdf_bytes(out):
