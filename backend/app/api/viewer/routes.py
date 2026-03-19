@@ -35,6 +35,7 @@ router = APIRouter()
 # This cache exists solely to reduce repeated watermark CPU cost during short time windows.
 _WM_CACHE_TTL_S = 300.0
 _WM_CACHE_MAX_ITEMS = 12
+_WM_CACHE_VER = "v3"  # bump to invalidate cached outputs after watermark algorithm changes
 _wm_cache: "OrderedDict[tuple[str, str, str], tuple[float, bytes]]" = OrderedDict()
 
 
@@ -242,7 +243,7 @@ def viewer_document(viewer_token: str, attachment_id: str, request: Request, db:
 
     watermark_text = f"{o.buyer_id} | {o.id}"
     font_file = settings.resolved_watermark_font_file()
-    cache_key = (str(file_path), str(watermark_text), str(font_file or ""))
+    cache_key = (str(file_path), str(watermark_text), str(font_file or "") + "|" + _WM_CACHE_VER)
     out = _wm_cache_get(cache_key)
     if out is None:
         try:

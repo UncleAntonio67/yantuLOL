@@ -97,8 +97,8 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
             except Exception:
                 pass
 
-        # Prefer classic xref tables/object layout for maximum compatibility across mobile WebViews.
-        out = doc.write(garbage=4, deflate=True, use_objstms=False, use_xref_streams=False)
+        # Prefer non-object-stream output for compatibility across mobile WebViews.
+        out = doc.write(garbage=4, deflate=True, use_objstms=False)
         # Some PDFs can become unreadable after rewriting; never block viewing.
         # Fall back to original bytes if the output isn't readable.
         if not _is_readable_pdf_bytes(out):

@@ -416,7 +416,12 @@ export default function ViewerPage() {
         a.click();
         a.remove();
       }
-      URL.revokeObjectURL(url);
+      if (isWeChat) {
+        // Give the new tab time to load the blob URL before revoking it.
+        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } else {
+        URL.revokeObjectURL(url);
+      }
     } catch (ex: any) {
       setErr(normalizeViewerError(ex?.message || "下载失败"));
     } finally {
