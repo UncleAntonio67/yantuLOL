@@ -27,7 +27,7 @@ export default function ProductsPage() {
   const [total, setTotal] = useState(0);
   const [deleteDlg, setDeleteDlg] = useState<{ productId: string; name: string; orderCount: number } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteInfoBusy, setDeleteInfoBusy] = useState(false);
+  const [deleteInfoBusyId, setDeleteInfoBusyId] = useState<string | null>(null);
 
   const pageSize = 10;
   const canManage = me?.role === "super_admin";
@@ -66,14 +66,14 @@ export default function ProductsPage() {
 
   async function doDelete(productId: string, name: string) {
     setErr(null);
-    setDeleteInfoBusy(true);
+    setDeleteInfoBusyId(productId);
     try {
       const info = await apiJson<{ product_id: string; order_count: number }>(`/api/admin/products/${productId}/delete-info`);
       setDeleteDlg({ productId, name, orderCount: Number(info.order_count || 0) });
     } catch (ex: any) {
       setErr(ex?.message || "无法获取删除信息");
     } finally {
-      setDeleteInfoBusy(false);
+      setDeleteInfoBusyId(null);
     }
   }
 
@@ -184,7 +184,12 @@ export default function ProductsPage() {
                             编辑
                           </Button>
                           {canManage && (
-                            <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)} disabled={deleteInfoBusy}>
+                            <Button
+                              tone="danger"
+                              size="sm"
+                              onClick={() => void doDelete(p.id, p.name)}
+                              disabled={deleteBusy || deleteInfoBusyId === p.id}
+                            >
                               删除
                             </Button>
                           )}
@@ -229,7 +234,12 @@ export default function ProductsPage() {
                       编辑
                     </Button>
                     {canManage && (
-                      <Button tone="danger" size="sm" onClick={() => void doDelete(p.id, p.name)} disabled={deleteInfoBusy}>
+                      <Button
+                        tone="danger"
+                        size="sm"
+                        onClick={() => void doDelete(p.id, p.name)}
+                        disabled={deleteBusy || deleteInfoBusyId === p.id}
+                      >
                         删除
                       </Button>
                     )}

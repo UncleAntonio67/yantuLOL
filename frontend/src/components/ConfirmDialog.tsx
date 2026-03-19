@@ -36,7 +36,7 @@ export default function ConfirmDialog(props: {
   if (!props.open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 backdrop-blur-[2px] p-4">
       <div className="glass w-full max-w-md rounded-2xl shadow-soft overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
           <div className="font-black text-gray-900">{props.title}</div>

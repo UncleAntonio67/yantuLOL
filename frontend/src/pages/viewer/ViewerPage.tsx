@@ -47,12 +47,20 @@ export default function ViewerPage() {
       return false;
     }
   }, []);
+  const [viewMode, setViewMode] = useState<"native" | "pdfjs">("pdfjs");
 
   const pdfUrl = useMemo(() => {
     if (!viewerToken) return null;
     const suffix = activeAttachmentId ? `/${encodeURIComponent(activeAttachmentId)}` : "";
     return `/api/viewer/document/${encodeURIComponent(viewerToken)}${suffix}`;
   }, [viewerToken, activeAttachmentId]);
+
+  // Default to native viewer inside WeChat; pdf.js can be fragile there.
+  useEffect(() => {
+    if (!viewerToken) return;
+    if (!isWeChat) return;
+    setViewMode((m) => (m === "pdfjs" ? "native" : m));
+  }, [viewerToken, isWeChat]);
 
   const watermarkHint = useMemo(() => {
     return orderId ? `订单 ${orderId} 的专属资料` : "专属资料";
@@ -65,6 +73,7 @@ export default function ViewerPage() {
 
   // Progressive rendering: render pages lazily when they enter viewport.
   useEffect(() => {
+    if (viewMode !== "pdfjs") return;
     if (!pdfUrl || !containerRef.current) return;
     const url = pdfUrl;
 
@@ -409,9 +418,21 @@ export default function ViewerPage() {
                   <div className="text-xs text-gray-600">
                     {meta.product_name} | {meta.is_confirmed ? "已确认收货，可下载" : "未确认收货，仅在线查看"}
                   </div>
-                  <Button tone="ghost" type="button" onClick={() => void refreshViewer()}>
-                    刷新
-                  </Button>
+                  <div className="flex items-center gap-2 justify-end">
+                    {isWeChat && (
+                      <Button
+                        tone="ghost"
+                        type="button"
+                        onClick={() => setViewMode((m) => (m === "native" ? "pdfjs" : "native"))}
+                        title={viewMode === "native" ? "切换到渲染模式（PDF.js）" : "切换到兼容模式（系统预览）"}
+                      >
+                        {viewMode === "native" ? "渲染模式" : "兼容模式"}
+                      </Button>
+                    )}
+                    <Button tone="ghost" type="button" onClick={() => void refreshViewer()}>
+                      刷新
+                    </Button>
+                  </div>
                 </div>
 
                 {meta.attachments.length > 1 && (
@@ -467,20 +488,43 @@ export default function ViewerPage() {
 
             <div className="glass rounded-2xl p-4" onContextMenu={(e) => e.preventDefault()} tabIndex={0}>
               <div className="mb-3 text-xs text-gray-600">已验证。若退款或密码重置，页面将无法继续加载。</div>
-              {rendering && (
-                <div className="mb-3 flex items-center justify-center">
-                  <Spinner className="h-5 w-5 text-gray-500" label="渲染中" />
-                  <span className="sr-only">渲染中</span>
+
+              {viewMode === "native" ? (
+                <div className="space-y-3">
+                  <div className="text-[11px] text-gray-600 leading-5">
+                    当前为兼容模式（系统 PDF 预览）。在微信内通常更稳定；如空白可点击右上角“刷新”或切换到“渲染模式”。
+                  </div>
+                  {pdfUrl ? (
+                    <iframe
+                      src={pdfUrl}
+                      title="pdf"
+                      className="w-full h-[75vh] rounded-xl border border-gray-100 bg-white"
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center py-8">
+                      <Spinner className="h-5 w-5 text-gray-500" label="加载中" />
+                      <span className="sr-only">加载中</span>
+                    </div>
+                  )}
                 </div>
+              ) : (
+                <>
+                  {rendering && (
+                    <div className="mb-3 flex items-center justify-center">
+                      <Spinner className="h-5 w-5 text-gray-500" label="渲染中" />
+                      <span className="sr-only">渲染中</span>
+                    </div>
+                  )}
+                  {err && pdfUrl && (
+                    <div className="mb-3 flex justify-center">
+                      <Button tone="ghost" type="button" onClick={() => window.open(pdfUrl, "_blank")}>
+                        在新窗口打开 PDF
+                      </Button>
+                    </div>
+                  )}
+                  <div ref={containerRef} className="space-y-2 select-none" />
+                </>
               )}
-              {err && pdfUrl && (
-                <div className="mb-3 flex justify-center">
-                  <Button tone="ghost" type="button" onClick={() => window.open(pdfUrl, "_blank")}>
-                    在新窗口打开 PDF
-                  </Button>
-                </div>
-              )}
-              <div ref={containerRef} className="space-y-2 select-none" />
             </div>
           </div>
         )}

@@ -15,6 +15,7 @@ export default function TeamPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [newRole, setNewRole] = useState<"normal_admin" | "super_admin">("normal_admin");
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const [deleteDlg, setDeleteDlg] = useState<{ member: TeamMember; orderCount: number } | null>(null);
   const [deleteInfoBusyId, setDeleteInfoBusyId] = useState<string | null>(null);
 
@@ -58,6 +59,7 @@ export default function TeamPage() {
     if (!deleteDlg) return;
     setErr(null);
     setDeleteBusy(true);
+    setDeleteBusyId(deleteDlg.member.id);
     try {
       const cascade = deleteDlg.orderCount > 0;
       const qs = cascade ? "?cascade_orders=true" : "";
@@ -69,6 +71,7 @@ export default function TeamPage() {
       setErr(ex?.message || "删除失败");
     } finally {
       setDeleteBusy(false);
+      setDeleteBusyId(null);
     }
   }
 
@@ -121,7 +124,7 @@ export default function TeamPage() {
                     tone="danger"
                     size="sm"
                     type="button"
-                    disabled={deleteBusy || deleteInfoBusyId === m.id || (me ? m.id === me.id : false)}
+                    disabled={deleteInfoBusyId === m.id || deleteBusyId === m.id || (me ? m.id === me.id : false)}
                     onClick={() => void askDelete(m)}
                   >
                     删除
