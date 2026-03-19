@@ -2,9 +2,11 @@
 
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from collections import OrderedDict
 import math
 from pathlib import Path
 import secrets
+import threading
 import time as time_mod
 import shutil
 from uuid import uuid4
@@ -66,8 +68,73 @@ _bearer = HTTPBearer(auto_error=False)
 # Cloud Run instances are ephemeral, but caching still reduces repeated R2 list calls.
 _SYSTEM_OVERVIEW_TTL_S = 15.0
 _DASHBOARD_ANALYTICS_TTL_S = 10.0
+_DASHBOARD_STATS_TTL_S = 5.0
 _system_overview_cache: tuple[float, SystemOverviewResponse] | None = None
 _dashboard_analytics_cache: tuple[float, DashboardAnalytics] | None = None
+_dashboard_stats_cache: tuple[float, DashboardStats] | None = None
+
+# Read-heavy endpoint caches (per instance, best-effort).
+# Keep TTL short so UI stays effectively "real-time" while avoiding repeated cross-region DB latency.
+_CACHE_VER = {"orders": 0, "products": 0, "team": 0}
+_cache_lock = threading.Lock()
+
+_PRODUCTS_LIST_TTL_S = 5.0
+_TEAM_LIST_TTL_S = 5.0
+_ORDERS_PAGED_TTL_S = 2.0
+_PRODUCTS_PAGED_TTL_S = 3.0
+
+_products_list_cache: tuple[float, tuple[int, int], list[ProductOut]] | None = None  # (ts, (products_ver, orders_ver), value)
+_team_list_cache: tuple[float, int, list[TeamMemberOut]] | None = None  # (ts, ver, value)
+_orders_paged_cache: "OrderedDict[tuple, tuple[float, OrderPage]]" = OrderedDict()
+_products_paged_cache: "OrderedDict[tuple, tuple[float, ProductPage]]" = OrderedDict()
+_PAGED_CACHE_MAX_ITEMS = 60
+
+
+def _bump_cache(*names: str) -> None:
+    with _cache_lock:
+        for n in names:
+            if n in _CACHE_VER:
+                _CACHE_VER[n] = int(_CACHE_VER[n]) + 1
+        # Drop paged caches on mutations to reduce stale pages.
+        if "orders" in names:
+            _orders_paged_cache.clear()
+        if "products" in names:
+            _products_paged_cache.clear()
+
+
+def _paged_cache_get(cache: "OrderedDict[tuple, tuple[float, object]]", key: tuple, ttl_s: float):
+    now = time_mod.time()
+    with _cache_lock:
+        item = cache.get(key)
+        if not item:
+            return None
+        ts, value = item
+        if (now - ts) > ttl_s:
+            try:
+                del cache[key]
+            except Exception:
+                pass
+            return None
+        try:
+            cache.move_to_end(key)
+        except Exception:
+            pass
+        return value
+
+
+def _paged_cache_put(cache: "OrderedDict[tuple, tuple[float, object]]", key: tuple, value: object) -> None:
+    now = time_mod.time()
+    with _cache_lock:
+        cache[key] = (now, value)
+        try:
+            cache.move_to_end(key)
+        except Exception:
+            pass
+        while len(cache) > _PAGED_CACHE_MAX_ITEMS:
+            try:
+                cache.popitem(last=False)
+            except Exception:
+                break
 
 
 def _require_admin(
@@ -313,8 +380,16 @@ def change_my_password(
 
 @router.get("/team", response_model=list[TeamMemberOut])
 def get_team(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_db)):
+    global _team_list_cache
+    now = time_mod.time()
+    with _cache_lock:
+        tv = int(_CACHE_VER["team"])
+        cached = _team_list_cache
+    if cached and cached[1] == tv and (now - cached[0]) <= _TEAM_LIST_TTL_S:
+        return cached[2]
+
     members = db.scalars(select(TeamMember).order_by(TeamMember.created_at.desc())).all()
-    return [
+    out = [
         TeamMemberOut(
             id=m.id,
             username=m.username,
@@ -325,6 +400,9 @@ def get_team(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_
         )
         for m in members
     ]
+    with _cache_lock:
+        _team_list_cache = (time_mod.time(), int(_CACHE_VER["team"]), out)
+    return out
 
 
 @router.post("/team", response_model=TeamMemberOut)
@@ -345,6 +423,7 @@ def create_team_member(
     db.add(user)
     db.commit()
     db.refresh(user)
+    _bump_cache("team", "orders")
     return TeamMemberOut(
         id=user.id,
         username=user.username,
@@ -419,27 +498,47 @@ def delete_team_member(
 
     db.delete(m)
     db.commit()
+    _bump_cache("team", "orders")
     return {"ok": True}
 
 
 @router.get("/products", response_model=list[ProductOut])
 def list_products(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_db)):
-    # sales_count (for analytics) is defined as confirmed (recognized) sales only.
-    sales_subq = (
-        select(func.count())
-        .select_from(Order)
-        .where(Order.product_id == Product.id)
+    global _products_list_cache
+    now = time_mod.time()
+    with _cache_lock:
+        pv = int(_CACHE_VER["products"])
+        ov = int(_CACHE_VER["orders"])
+        cached = _products_list_cache
+    if cached and cached[1] == (pv, ov) and (now - cached[0]) <= _PRODUCTS_LIST_TTL_S:
+        return cached[2]
+
+    # sales_count is defined as confirmed (recognized) sales only.
+    # Avoid per-row correlated subqueries (slow on cross-region DB).
+    sales_sq = (
+        select(Order.product_id.label("product_id"), func.count(Order.id).label("sales_count"))
         .where(Order.status == OrderStatus.active)
         .where(Order.confirmed_at.is_not(None))
-        .scalar_subquery()
+        .group_by(Order.product_id)
+        .subquery()
     )
-    att_subq = (
-        select(func.count())
-        .select_from(ProductAttachment)
-        .where(ProductAttachment.product_id == Product.id)
-        .scalar_subquery()
+    att_sq = (
+        select(ProductAttachment.product_id.label("product_id"), func.count(ProductAttachment.id).label("attachment_count"))
+        .group_by(ProductAttachment.product_id)
+        .subquery()
     )
-    rows = db.execute(select(Product, sales_subq.label("sales_count"), att_subq.label("attachment_count")).order_by(Product.created_at.desc())).all()
+
+    stmt = (
+        select(
+            Product,
+            func.coalesce(sales_sq.c.sales_count, 0).label("sales_count"),
+            func.coalesce(att_sq.c.attachment_count, 0).label("attachment_count"),
+        )
+        .outerjoin(sales_sq, sales_sq.c.product_id == Product.id)
+        .outerjoin(att_sq, att_sq.c.product_id == Product.id)
+        .order_by(Product.created_at.desc())
+    )
+    rows = db.execute(stmt).all()
     out: list[ProductOut] = []
     for p, sales, att_count in rows:
         attachment_count = int(att_count or 0)
@@ -459,6 +558,9 @@ def list_products(_: TeamMember = Depends(_require_admin), db: Session = Depends
                 updated_at=p.updated_at,
             )
         )
+
+    with _cache_lock:
+        _products_list_cache = (time_mod.time(), (int(_CACHE_VER["products"]), int(_CACHE_VER["orders"])), out)
     return out
 
 
@@ -469,35 +571,55 @@ def list_products_paged(
     _: TeamMember = Depends(_require_admin),
     db: Session = Depends(get_db),
 ):
-    total = int(db.scalar(select(func.count()).select_from(Product)) or 0)
-    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+    with _cache_lock:
+        pv = int(_CACHE_VER["products"])
+        ov = int(_CACHE_VER["orders"])
+    cache_key = ("products_paged", pv, ov, int(page), int(page_size))
+    cached = _paged_cache_get(_products_paged_cache, cache_key, _PRODUCTS_PAGED_TTL_S)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
     offset = (page - 1) * page_size
 
-    if total and offset >= total:
-        return ProductPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=[])
-
-    sales_subq = (
-        select(func.count())
-        .select_from(Order)
-        .where(Order.product_id == Product.id)
+    sales_sq = (
+        select(Order.product_id.label("product_id"), func.count(Order.id).label("sales_count"))
         .where(Order.status == OrderStatus.active)
         .where(Order.confirmed_at.is_not(None))
-        .scalar_subquery()
+        .group_by(Order.product_id)
+        .subquery()
     )
-    att_subq = (
-        select(func.count())
-        .select_from(ProductAttachment)
-        .where(ProductAttachment.product_id == Product.id)
-        .scalar_subquery()
+    att_sq = (
+        select(ProductAttachment.product_id.label("product_id"), func.count(ProductAttachment.id).label("attachment_count"))
+        .group_by(ProductAttachment.product_id)
+        .subquery()
     )
-    rows = db.execute(
-        select(Product, sales_subq.label("sales_count"), att_subq.label("attachment_count"))
+
+    total_over = func.count(Product.id).over().label("total_count")
+    stmt = (
+        select(
+            Product,
+            func.coalesce(sales_sq.c.sales_count, 0).label("sales_count"),
+            func.coalesce(att_sq.c.attachment_count, 0).label("attachment_count"),
+            total_over,
+        )
+        .outerjoin(sales_sq, sales_sq.c.product_id == Product.id)
+        .outerjoin(att_sq, att_sq.c.product_id == Product.id)
         .order_by(Product.created_at.desc())
         .offset(offset)
         .limit(page_size)
-    ).all()
+    )
+    rows = db.execute(stmt).all()
+
+    # If the requested page is beyond the end, keep totals accurate.
+    total = int(rows[0][3]) if rows else int(db.scalar(select(func.count()).select_from(Product)) or 0)
+    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+    if total and offset >= total:
+        res = ProductPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=[])
+        _paged_cache_put(_products_paged_cache, cache_key, res)
+        return res
+
     out: list[ProductOut] = []
-    for p, sales, att_count in rows:
+    for p, sales, att_count, _tot in rows:
         attachment_count = int(att_count or 0)
         if attachment_count == 0:
             attachment_count = 1
@@ -515,7 +637,9 @@ def list_products_paged(
                 updated_at=p.updated_at,
             )
         )
-    return ProductPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=out)
+    res = ProductPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=out)
+    _paged_cache_put(_products_paged_cache, cache_key, res)
+    return res
 
 
 @router.post("/products", response_model=ProductOut)
@@ -582,6 +706,7 @@ def create_product(
     db.add(product)
     db.commit()
     db.refresh(product)
+    _bump_cache("products")
 
     return ProductOut(
         id=product.id,
@@ -612,6 +737,7 @@ def update_product(
     db.add(p)
     db.commit()
     db.refresh(p)
+    _bump_cache("products")
 
     sales = (
         db.scalar(
@@ -656,6 +782,7 @@ def upload_product_cover_image(
     db.add(p)
     db.commit()
     db.refresh(p)
+    _bump_cache("products")
 
     sales = (
         db.scalar(
@@ -754,6 +881,7 @@ def delete_product(
         pass
     db.delete(p)
     db.commit()
+    _bump_cache("products", "orders")
     return {"ok": True}
 
 
@@ -835,6 +963,7 @@ def add_product_attachments(
             )
         )
     db.commit()
+    _bump_cache("products")
 
     atts = db.scalars(
         select(ProductAttachment)
@@ -877,6 +1006,7 @@ def delete_product_attachment(
         pass
     db.delete(att)
     db.commit()
+    _bump_cache("products")
 
     if deleting_primary:
         next_att = db.scalar(
@@ -888,6 +1018,7 @@ def delete_product_attachment(
             p.source_pdf_path = next_att.file_path
             db.add(p)
             db.commit()
+            _bump_cache("products")
 
     return {"ok": True}
 
@@ -936,6 +1067,7 @@ def deliver_order(
     )
     db.add(order)
     db.commit()
+    _bump_cache("orders")
 
     email_subject: str | None = None
     email_body: str | None = None
@@ -1025,9 +1157,33 @@ def list_orders_paged(
     _: TeamMember = Depends(_require_admin),
     db: Session = Depends(get_db),
 ):
+    with _cache_lock:
+        ov = int(_CACHE_VER["orders"])
+        tv = int(_CACHE_VER["team"])
+        pv = int(_CACHE_VER["products"])
+    cache_key = (
+        "orders_paged",
+        ov,
+        tv,
+        pv,
+        buyer_id or "",
+        product_id or "",
+        operator_id or "",
+        status_filter or "",
+        str(created_from or ""),
+        str(created_to or ""),
+        sort_by or "",
+        (sort_dir or "").lower(),
+        int(page),
+        int(page_size),
+    )
+    cached = _paged_cache_get(_orders_paged_cache, cache_key, _ORDERS_PAGED_TTL_S)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
     count_stmt = select(func.count()).select_from(Order)
     data_stmt = (
-        select(Order, Product, TeamMember)
+        select(Order, Product, TeamMember, func.count(Order.id).over().label("total_count"))
         .join(Product, Product.id == Order.product_id)
         .join(TeamMember, TeamMember.id == Order.operator_id)
     )
@@ -1073,16 +1229,24 @@ def list_orders_paged(
     else:
         data_stmt = data_stmt.order_by(ob, Order.created_at.desc(), Order.id.asc())
 
-    total = int(db.scalar(count_stmt) or 0)
-    total_pages = max(1, math.ceil(total / page_size)) if total else 1
     offset = (page - 1) * page_size
 
-    if total and offset >= total:
-        return OrderPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=[])
-
     rows = db.execute(data_stmt.offset(offset).limit(page_size)).all()
+    # Avoid a separate COUNT(*) query on the hot path (cross-region DB latency dominates).
+    # Fall back to COUNT(*) only when the page is empty.
+    if rows:
+        total = int(rows[0][3] or 0)
+    else:
+        total = int(db.scalar(count_stmt) or 0)
+    total_pages = max(1, math.ceil(total / page_size)) if total else 1
+
+    if total and offset >= total:
+        res = OrderPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=[])
+        _paged_cache_put(_orders_paged_cache, cache_key, res)
+        return res
+
     out: list[OrderOut] = []
-    for o, p, op in rows:
+    for o, p, op, _tot in rows:
         out.append(
             OrderOut(
                 id=o.id,
@@ -1102,7 +1266,9 @@ def list_orders_paged(
                 refunded_at=o.refunded_at,
             )
         )
-    return OrderPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=out)
+    res = OrderPage(page=page, page_size=page_size, total=total, total_pages=total_pages, items=out)
+    _paged_cache_put(_orders_paged_cache, cache_key, res)
+    return res
 
 
 @router.post("/orders/{order_id}/confirm", response_model=OrderOut)
@@ -1122,6 +1288,7 @@ def confirm_order(
         db.add(o)
         db.commit()
         db.refresh(o)
+        _bump_cache("orders", "products")
 
     p = db.get(Product, o.product_id)
     op = db.get(TeamMember, o.operator_id)
@@ -1161,6 +1328,7 @@ def refund_order(
     o.refunded_by = admin.id
     db.add(o)
     db.commit()
+    _bump_cache("orders", "products")
 
     # Best-effort cleanup of generated downloadable PDFs for this order.
     try:
@@ -1207,6 +1375,7 @@ def delete_order_record(
 
     db.delete(o)
     db.commit()
+    _bump_cache("orders", "products")
     return {"ok": True}
 
 
@@ -1245,6 +1414,7 @@ def bulk_delete_orders(
                 pass
         db.execute(delete(Order).where(Order.id.in_(list(found_set))))
         db.commit()
+        _bump_cache("orders", "products")
 
     return OrderBulkDeleteResponse(deleted_count=len(found_set), not_found=not_found)
 
@@ -1269,6 +1439,7 @@ def reset_order_password(
     o.password_version = int(o.password_version) + 1
     db.add(o)
     db.commit()
+    _bump_cache("orders")
 
     viewer_url = _viewer_url(order_id=o.id, request=request)
     copy_text = _append_legal_disclaimer(_copy_text(viewer_url=viewer_url, password=new_password, buyer_id=o.buyer_id))
@@ -1308,6 +1479,11 @@ def send_order_email(
 
 @router.get("/dashboard/stats", response_model=DashboardStats)
 def dashboard_stats(_: TeamMember = Depends(_require_admin), db: Session = Depends(get_db)):
+    global _dashboard_stats_cache
+    now_ts = time_mod.time()
+    if _dashboard_stats_cache and (now_ts - _dashboard_stats_cache[0]) < _DASHBOARD_STATS_TTL_S:
+        return _dashboard_stats_cache[1]
+
     # Revenue is recognized only after admin confirms receipt.
     # "Today" is computed in business timezone (default UTC+8).
     now_local = datetime.now(timezone.utc).astimezone(BIZ_TZ)
@@ -1351,13 +1527,15 @@ def dashboard_stats(_: TeamMember = Depends(_require_admin), db: Session = Depen
     )
     active_products = db.scalar(select(func.count()).select_from(Product).where(Product.is_active.is_(True))) or 0
 
-    return DashboardStats(
+    res = DashboardStats(
         today_revenue=Decimal(str(today_revenue)),
         today_orders=int(today_orders),
         total_revenue=Decimal(str(total_revenue)),
         active_products=int(active_products),
         total_refunds=int(total_refunds),
     )
+    _dashboard_stats_cache = (now_ts, res)
+    return res
 
 
 @router.get("/dashboard/analytics", response_model=DashboardAnalytics)

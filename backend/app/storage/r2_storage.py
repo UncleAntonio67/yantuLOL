@@ -74,7 +74,15 @@ def get_s3_client():
         aws_access_key_id=_getenv("R2_ACCESS_KEY_ID"),
         aws_secret_access_key=_getenv("R2_SECRET_ACCESS_KEY"),
         region_name=_getenv("R2_REGION") or "auto",
-        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}, retries={"max_attempts": 5, "mode": "standard"}),
+        # Increase connection pool for Cloud Run concurrency (helps bursty PDF reads).
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+            retries={"max_attempts": 5, "mode": "standard"},
+            max_pool_connections=50,
+            connect_timeout=5,
+            read_timeout=60,
+        ),
     )
     return s3_client
 
