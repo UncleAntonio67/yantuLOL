@@ -150,11 +150,23 @@ export default function OrdersPage() {
     }
   }
 
-  async function loadOrders() {
+  function _hasActiveFilters() {
+    return Boolean(
+      buyerIdQuery ||
+        productFilterQuery ||
+        operatorFilterQuery ||
+        statusFilterQuery ||
+        createdFromQuery ||
+        createdToQuery
+    );
+  }
+
+  async function loadOrders(opts?: { pageOverride?: number; silent?: boolean }) {
     setErr(null);
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     const seq = ++loadSeq.current;
     try {
+      const pageToLoad = Number(opts?.pageOverride || page);
       const params = new URLSearchParams();
       if (buyerIdQuery) params.set("buyer_id", buyerIdQuery);
       if (productFilterQuery) params.set("product_id", productFilterQuery);
@@ -162,7 +174,7 @@ export default function OrdersPage() {
       if (statusFilterQuery) params.set("status_filter", statusFilterQuery);
       if (createdFromQuery) params.set("created_from", createdFromQuery);
       if (createdToQuery) params.set("created_to", createdToQuery);
-      params.set("page", String(page));
+      params.set("page", String(pageToLoad));
       params.set("page_size", String(pageSize));
       params.set("sort_by", sortBy);
       params.set("sort_dir", sortDir);
@@ -174,7 +186,7 @@ export default function OrdersPage() {
     } catch (ex: any) {
       setErr(ex?.message || "加载失败");
     } finally {
-      if (seq === loadSeq.current) setLoading(false);
+      if (seq === loadSeq.current && !opts?.silent) setLoading(false);
     }
   }
 
@@ -339,6 +351,15 @@ export default function OrdersPage() {
             setNotifyText(res.copy_text || "");
             await safeCopy(res.password, "密码已复制");
             toast.success("发货信息已生成");
+
+            // Improve UX: keep the records list up-to-date without requiring a manual refresh.
+            // If there are no active filters, jump records to page 1 so the newest order is visible.
+            if (!_hasActiveFilters()) {
+              setPage(1);
+              void loadOrders({ pageOverride: 1, silent: true });
+            } else {
+              void loadOrders({ silent: true });
+            }
           } catch (ex: any) {
             const msg = String(ex?.message || "发货失败");
             if (isWeChat && (msg.includes("网络错误") || msg.includes("Failed to fetch"))) {
