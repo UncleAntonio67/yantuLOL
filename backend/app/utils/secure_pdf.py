@@ -92,8 +92,8 @@ def watermark_encrypt_pdf_bytes(
         for page in doc:
             rect = page.rect
             w, h = rect.width, rect.height
-            step = max(220, int(min(w, h) / 2.2))
-            fontsize = max(10, int(min(w, h) / 32))
+            step = max(160, int(min(w, h) / 2.7))
+            fontsize = max(10, int(min(w, h) / 30))
 
             for x in range(0, int(w) + step, step):
                 for y in range(0, int(h) + step, step):
@@ -105,7 +105,7 @@ def watermark_encrypt_pdf_bytes(
                             fontsize=fontsize,
                             fontname=fontname,
                             fill=(0.25, 0.25, 0.25),
-                            fill_opacity=0.24,
+                            fill_opacity=0.28,
                             morph=(origin, wm_matrix),
                             overlay=True,
                         )

@@ -56,9 +56,9 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
             rect = page.rect
             w, h = rect.width, rect.height
 
-            # Lighter and sparser watermark for readability.
-            step = max(220, int(min(w, h) / 2.0))
-            fontsize = max(10, int(min(w, h) / 32))
+            # Denser watermark: enough to deter cropping, but keep a readable opacity.
+            step = max(160, int(min(w, h) / 2.7))
+            fontsize = max(10, int(min(w, h) / 30))
 
             for x in range(0, int(w) + step, step):
                 for y in range(0, int(h) + step, step):
@@ -71,7 +71,7 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                             fontname=fontname,
                             fill=(0.25, 0.25, 0.25),
                             # Keep it readable but not overpowering.
-                            fill_opacity=0.24,
+                            fill_opacity=0.28,
                             morph=(origin, wm_matrix),
                             overlay=True,
                         )

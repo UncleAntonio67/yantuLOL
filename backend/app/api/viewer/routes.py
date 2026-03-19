@@ -260,7 +260,9 @@ def viewer_document(viewer_token: str, attachment_id: str, request: Request, db:
 
     headers = {
         "Content-Type": "application/pdf",
-        "Cache-Control": "private, max-age=60",
+        # Do not allow caching of protected content; ensures viewers must authenticate (password -> viewer token)
+        # and prevents stale docs from being shown after refund/password reset.
+        "Cache-Control": "no-store",
         # Some mobile WebViews (and PDFs with CJK filenames) are sensitive to non-ASCII Content-Disposition filename.
         # Inline viewing doesn't need a filename at all, so keep it minimal.
         "Content-Disposition": "inline",
