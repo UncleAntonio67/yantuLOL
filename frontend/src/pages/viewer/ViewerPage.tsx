@@ -153,14 +153,14 @@ export default function ViewerPage() {
       const first = await pdf.getPage(1);
       const vp1 = first.getViewport({ scale: 1 });
       const cw = Math.max(320, container.clientWidth || window.innerWidth || 1024);
-      const fitScale = Math.min(1.25, Math.max(0.92, (cw / vp1.width) * 1.02));
+      const placeholderScale = Math.min(1.25, Math.max(0.6, (cw / vp1.width) * 0.99));
 
       // Improve clarity on high DPI screens, but cap for performance.
       const dpr = Math.min(1.6, Math.max(1, window.devicePixelRatio || 1));
 
       const rendered = new Set<number>();
       const inflight = new Map<number, Promise<void>>();
-      const placeholderHeight = Math.max(160, Math.floor(vp1.height * fitScale));
+      const placeholderHeight = Math.max(160, Math.floor(vp1.height * placeholderScale));
 
       const canIO = typeof IntersectionObserver !== "undefined";
       if (canIO) {
@@ -211,16 +211,32 @@ export default function ViewerPage() {
             const page = await pdf.getPage(pageNo);
             if (cancelled) return;
 
-            const cssViewport = page.getViewport({ scale: fitScale });
-            const renderViewport = page.getViewport({ scale: fitScale * dpr });
+            const baseVp = page.getViewport({ scale: 1 });
+            // Compute per-page scale so landscape (PPT-style) pages don't overflow and get squashed.
+            // Cap zoom-in to avoid huge canvases, but allow zoom-out for very wide slides.
+            const cssScale = Math.min(1.25, Math.max(0.55, (cw / baseVp.width) * 0.99));
+            const cssViewport = page.getViewport({ scale: cssScale });
+
+            // Render at higher resolution, but cap pixel count to keep wide pages stable.
+            let renderScale = cssScale * dpr;
+            let renderViewport = page.getViewport({ scale: renderScale });
+            const maxPixels = 12_000_000; // ~12MP cap for mobile stability
+            const pixels = Number(renderViewport.width) * Number(renderViewport.height);
+            if (pixels > maxPixels && pixels > 0) {
+              const factor = Math.sqrt(maxPixels / pixels);
+              renderScale = Math.max(cssScale, renderScale * factor);
+              renderViewport = page.getViewport({ scale: renderScale });
+            }
 
             const canvas = document.createElement("canvas");
             canvas.width = Math.floor(renderViewport.width);
             canvas.height = Math.floor(renderViewport.height);
             canvas.style.display = "block";
             canvas.style.width = `${Math.floor(cssViewport.width)}px`;
-            canvas.style.height = `${Math.floor(cssViewport.height)}px`;
-            canvas.className = "max-w-full";
+            // Preserve aspect ratio when width is constrained by container (avoid stretching/squashing).
+            canvas.style.maxWidth = "100%";
+            canvas.style.height = "auto";
+            canvas.className = "block";
 
             const ctx = canvas.getContext("2d")!;
             await page.render({ canvasContext: ctx, viewport: renderViewport }).promise;

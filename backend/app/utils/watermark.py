@@ -71,7 +71,7 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                             fontname=fontname,
                             fill=(0.25, 0.25, 0.25),
                             # Keep it readable but not overpowering.
-                            fill_opacity=0.20,
+                            fill_opacity=0.24,
                             morph=(origin, wm_matrix),
                             overlay=True,
                         )

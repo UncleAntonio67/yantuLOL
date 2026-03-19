@@ -105,7 +105,7 @@ def watermark_encrypt_pdf_bytes(
                             fontsize=fontsize,
                             fontname=fontname,
                             fill=(0.25, 0.25, 0.25),
-                            fill_opacity=0.16,
+                            fill_opacity=0.24,
                             morph=(origin, wm_matrix),
                             overlay=True,
                         )

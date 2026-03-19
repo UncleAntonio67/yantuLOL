@@ -32,6 +32,9 @@ from app.schemas.schemas import (
     LoginResponse,
     OrderPage,
     OrderOut,
+    OrderDeleteInfoResponse,
+    OrderBulkDeleteRequest,
+    OrderBulkDeleteResponse,
     ProductPage,
     ProductAttachmentOut,
     ProductDetailOut,
@@ -196,20 +199,14 @@ def _ensure_primary_attachment(*, product: Product, db: Session) -> None:
     db.commit()
 
 
-def _validate_pdf_upload(upload: UploadFile) -> None:
-    filename = (upload.filename or "").lower()
-    if not filename.endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF is supported")
+_MAX_INMEM_UPLOAD_BYTES = 32 * 1024 * 1024  # 32MB
 
-    # Fast header check first.
-    head = upload.file.read(5)
-    upload.file.seek(0)
-    if head != b"%PDF-":
+
+def _validate_pdf_bytes(*, data: bytes) -> None:
+    if not data:
+        raise HTTPException(status_code=400, detail="Unreadable PDF file")
+    if not data.startswith(b"%PDF-"):
         raise HTTPException(status_code=400, detail="Invalid PDF header")
-
-    # Ensure the PDF is readable and not already encrypted.
-    data = upload.file.read()
-    upload.file.seek(0)
     doc = None
     try:
         doc = fitz.open(stream=data, filetype="pdf")
@@ -226,10 +223,61 @@ def _validate_pdf_upload(upload: UploadFile) -> None:
             doc.close()  # type: ignore[union-attr]
         except Exception:
             pass
+
+
+def _try_read_upload_inmem(upload: UploadFile) -> bytes | None:
+    """
+    Best-effort: if an upload is small, read it into memory once so we can
+    validate and upload without reading the stream twice.
+    """
+    f = upload.file
+    size = None
+    try:
+        cur = f.tell()
+    except Exception:
+        cur = 0
+    try:
+        f.seek(0, 2)
+        size = int(f.tell())
+    except Exception:
+        size = None
+    finally:
         try:
-            upload.file.seek(0)
+            f.seek(0)
         except Exception:
             pass
+
+    if size is None or size > _MAX_INMEM_UPLOAD_BYTES:
+        return None
+
+    try:
+        data = f.read()
+    finally:
+        try:
+            f.seek(0)
+        except Exception:
+            pass
+    return data
+
+
+def _validate_pdf_upload(upload: UploadFile) -> None:
+    filename = (upload.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF is supported")
+
+    data = _try_read_upload_inmem(upload)
+    if data is not None:
+        _validate_pdf_bytes(data=data)
+        return
+
+    # Large file path: validate by reading (keeps behavior stable).
+    head = upload.file.read(5)
+    upload.file.seek(0)
+    if head != b"%PDF-":
+        raise HTTPException(status_code=400, detail="Invalid PDF header")
+    data2 = upload.file.read()
+    upload.file.seek(0)
+    _validate_pdf_bytes(data=data2)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -493,9 +541,6 @@ def create_product(
     if not uploads:
         raise HTTPException(status_code=400, detail="At least one PDF attachment is required")
 
-    for u in uploads:
-        _validate_pdf_upload(u)
-
     product = Product(
         name=name,
         description=description,
@@ -511,7 +556,14 @@ def create_product(
     for idx, u in enumerate(uploads):
         att_id = str(uuid4())
         uri = storage.product_attachment_uri(product_id=product.id, attachment_id=att_id)
-        storage.put_bytes(uri=uri, data=u.file.read(), content_type="application/pdf")
+        # Fast path for small uploads: read once (validate + upload from memory).
+        data = _try_read_upload_inmem(u)
+        if data is not None:
+            _validate_pdf_bytes(data=data)
+            storage.put_bytes(uri=uri, data=data, content_type="application/pdf")
+        else:
+            _validate_pdf_upload(u)
+            storage.put_fileobj(uri=uri, fileobj=u.file, content_type="application/pdf")
         db.add(
             ProductAttachment(
                 id=att_id,
@@ -760,16 +812,19 @@ def add_product_attachments(
         raise HTTPException(status_code=400, detail="At least one PDF attachment is required")
     _ensure_primary_attachment(product=p, db=db)
 
-    for u in attachments:
-        _validate_pdf_upload(u)
-
     max_sort = int(
         db.scalar(select(func.max(ProductAttachment.sort_index)).where(ProductAttachment.product_id == p.id)) or 0
     )
     for i, u in enumerate(attachments, start=1):
         att_id = str(uuid4())
         uri = storage.product_attachment_uri(product_id=p.id, attachment_id=att_id)
-        storage.put_bytes(uri=uri, data=u.file.read(), content_type="application/pdf")
+        data = _try_read_upload_inmem(u)
+        if data is not None:
+            _validate_pdf_bytes(data=data)
+            storage.put_bytes(uri=uri, data=data, content_type="application/pdf")
+        else:
+            _validate_pdf_upload(u)
+            storage.put_fileobj(uri=uri, fileobj=u.file, content_type="application/pdf")
         db.add(
             ProductAttachment(
                 id=att_id,
@@ -1113,6 +1168,85 @@ def refund_order(
     except Exception:
         pass
     return RefundResponse(order_id=o.id, status=o.status.value)
+
+
+@router.get("/orders/{order_id}/delete-info", response_model=OrderDeleteInfoResponse)
+def order_delete_info(
+    order_id: str,
+    _: TeamMember = Depends(_require_super_admin),
+    db: Session = Depends(get_db),
+):
+    o = db.get(Order, order_id)
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return OrderDeleteInfoResponse(
+        order_id=o.id,
+        status=o.status.value,
+        created_at=o.created_at,
+        confirmed_at=o.confirmed_at,
+        refunded_at=o.refunded_at,
+    )
+
+
+@router.delete("/orders/{order_id}")
+def delete_order_record(
+    order_id: str,
+    _: TeamMember = Depends(_require_super_admin),
+    db: Session = Depends(get_db),
+):
+    settings = get_settings()
+    o = db.get(Order, order_id)
+    if not o:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Best-effort cleanup of generated downloadable PDFs for this order.
+    try:
+        shutil.rmtree(str(Path(settings.generated_pdf_dir) / o.id), ignore_errors=True)
+    except Exception:
+        pass
+
+    db.delete(o)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/orders/bulk-delete", response_model=OrderBulkDeleteResponse)
+def bulk_delete_orders(
+    payload: OrderBulkDeleteRequest,
+    _: TeamMember = Depends(_require_super_admin),
+    db: Session = Depends(get_db),
+):
+    settings = get_settings()
+    raw_ids = [str(x).strip() for x in (payload.order_ids or []) if str(x).strip()]
+    if not raw_ids:
+        raise HTTPException(status_code=400, detail="order_ids is required")
+    # Avoid accidental massive deletes.
+    if len(raw_ids) > 200:
+        raise HTTPException(status_code=400, detail="Too many order_ids (max 200)")
+
+    ids: list[str] = []
+    seen = set()
+    for oid in raw_ids:
+        if oid in seen:
+            continue
+        seen.add(oid)
+        ids.append(oid)
+
+    found = db.scalars(select(Order.id).where(Order.id.in_(ids))).all() or []
+    found_set = set(found)
+    not_found = [oid for oid in ids if oid not in found_set]
+
+    if found_set:
+        # Best-effort cleanup of generated downloadable PDFs.
+        for oid in found_set:
+            try:
+                shutil.rmtree(str(Path(settings.generated_pdf_dir) / oid), ignore_errors=True)
+            except Exception:
+                pass
+        db.execute(delete(Order).where(Order.id.in_(list(found_set))))
+        db.commit()
+
+    return OrderBulkDeleteResponse(deleted_count=len(found_set), not_found=not_found)
 
 
 @router.post("/orders/{order_id}/reset-password", response_model=ResetOrderPasswordResponse)

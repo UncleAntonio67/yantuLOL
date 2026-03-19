@@ -10,7 +10,7 @@ import { Input, Label } from "../../components/Field";
 import SelectMenu from "../../components/SelectMenu";
 import { apiJson, apiJsonCached } from "../../lib/api";
 import { toast } from "../../lib/toast";
-import type { DeliverResponse, Order, OrderPage, Product, TeamMember } from "../../lib/types";
+import type { AdminMe, DeliverResponse, Order, OrderPage, Product, TeamMember } from "../../lib/types";
 
 function ensureDisclaimer(text: string, disclaimer: string): string {
   const d = (disclaimer || "").trim();
@@ -39,6 +39,7 @@ function shortId(id: string) {
 }
 
 export default function OrdersPage() {
+  const [me, setMe] = useState<AdminMe | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [operators, setOperators] = useState<TeamMember[]>([]);
 
@@ -85,6 +86,11 @@ export default function OrdersPage() {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [pwDlg, setPwDlg] = useState<{ orderId: string; loading: boolean; password: string; err?: string } | null>(null);
   const [copyDlg, setCopyDlg] = useState<{ title: string; text: string } | null>(null);
+  const [deleteDlg, setDeleteDlg] = useState<{ ids: string[]; deletedCount?: number; notFound?: string[] } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  const canDeleteOrders = me?.role === "super_admin";
 
   async function safeCopy(text: string, okMsg: string = "已复制") {
     const t = String(text || "");
@@ -122,10 +128,12 @@ export default function OrdersPage() {
   async function loadBootstrap() {
     setErr(null);
     try {
-      const [ps, team] = await Promise.all([
+      const [m, ps, team] = await Promise.all([
+        apiJsonCached<AdminMe>("/api/admin/me", 10000),
         apiJsonCached<Product[]>("/api/admin/products", 10000),
         apiJsonCached<TeamMember[]>("/api/admin/team", 10000)
       ]);
+      setMe(m);
       setProducts(ps);
       setOperators(team);
       if (!productId && ps.length) setProductId(ps[0].id);
@@ -171,6 +179,11 @@ export default function OrdersPage() {
     loadOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, buyerIdQuery, productFilterQuery, operatorFilterQuery, statusFilterQuery, createdFromQuery, createdToQuery, sortBy, sortDir]);
+
+  useEffect(() => {
+    // Clear selection when the page data changes.
+    setSelectedIds([]);
+  }, [orders]);
 
   useEffect(() => {
     if (!filtersOpen) return;
@@ -223,6 +236,45 @@ export default function OrdersPage() {
       setPwDlg({ orderId, loading: false, password: r.password });
     } catch (ex: any) {
       setPwDlg({ orderId, loading: false, password: "", err: ex?.message || "无法获取密码（可使用重置密码）" });
+    }
+  }
+
+  function isSelected(id: string) {
+    return selectedIds.includes(id);
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleSelectAllCurrentPage() {
+    setSelectedIds((prev) => {
+      if (orders.length === 0) return [];
+      const all = orders.map((o) => o.id);
+      const allSelected = all.every((id) => prev.includes(id));
+      return allSelected ? [] : all;
+    });
+  }
+
+  async function doDeleteOrders(ids: string[]) {
+    const orderIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean)));
+    if (!orderIds.length) return;
+    setErr(null);
+    setDeleteBusy(true);
+    try {
+      const r = await apiJson<{ deleted_count: number; not_found: string[] }>("/api/admin/orders/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify({ order_ids: orderIds })
+      });
+      toast.success(`已删除 ${r.deleted_count} 条记录`);
+      if (r.not_found?.length) toast.info(`有 ${r.not_found.length} 条记录不存在，已跳过`);
+      setDeleteDlg(null);
+      setSelectedIds([]);
+      await loadOrders();
+    } catch (ex: any) {
+      setErr(ex?.message || "删除失败");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -349,6 +401,22 @@ export default function OrdersPage() {
 
   const recordsPanel = (
     <Card title="发货记录与售后" subtitle="支持按买家、商品、操作人、日期筛选；支持时间/金额排序">
+      <ConfirmDialog
+        open={!!deleteDlg}
+        title="删除发货记录"
+        message={
+          deleteDlg
+            ? `确认删除 ${deleteDlg.ids.length} 条发货记录吗？该操作不可恢复，将导致对应阅读链接失效。`
+            : ""
+        }
+        confirmText="确认删除"
+        cancelText="取消"
+        danger
+        busy={deleteBusy}
+        onClose={() => setDeleteDlg(null)}
+        onConfirm={() => void doDeleteOrders(deleteDlg?.ids || [])}
+      />
+
       <div className="md:hidden sticky top-2 z-20 flex items-center justify-between gap-2 rounded-2xl border border-gray-100 bg-white/80 p-2 backdrop-blur shadow-soft">
         <div className="text-xs text-gray-600">共 {total} 条</div>
         <div className="flex items-center gap-2">
@@ -459,10 +527,31 @@ export default function OrdersPage() {
         <div className="mt-4 space-y-3">
           {loading && <div className="flex items-center justify-center"><Spinner className="h-5 w-5 text-gray-500" label="加载中" /></div>}
 
+          {canDeleteOrders && selectedIds.length > 0 && (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-rose-900">已选 {selectedIds.length} 条</div>
+              <Button tone="danger" size="sm" type="button" onClick={() => setDeleteDlg({ ids: selectedIds })}>
+                删除选中
+              </Button>
+            </div>
+          )}
+
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full table-auto text-left text-sm min-w-[1100px]">
               <thead className="text-xs text-gray-500">
                 <tr>
+                  {canDeleteOrders && (
+                    <th className="px-3 py-3 w-[44px]">
+                      <button
+                        type="button"
+                        className="inline-flex h-5 w-5 items-center justify-center rounded border border-gray-300 bg-white text-xs font-black text-gray-700 hover:border-brand-300"
+                        onClick={() => toggleSelectAllCurrentPage()}
+                        title="全选/取消全选当前页"
+                      >
+                        {selectedIds.length === orders.length && orders.length > 0 ? "✓" : ""}
+                      </button>
+                    </th>
+                  )}
                   <th className="px-3 py-3">订单</th>
                   <th className="px-3 py-3">买家</th>
                   <th className="px-3 py-3">商品</th>
@@ -481,6 +570,21 @@ export default function OrdersPage() {
               <tbody className="divide-y divide-gray-100">
                 {orders.map((o) => (
                   <tr key={o.id} className="hover:bg-white/60 align-middle">
+                    {canDeleteOrders && (
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          className={[
+                            "inline-flex h-5 w-5 items-center justify-center rounded border text-xs font-black transition",
+                            isSelected(o.id) ? "border-brand-300 bg-brand-50 text-brand-800" : "border-gray-300 bg-white text-gray-700 hover:border-brand-300"
+                          ].join(" ")}
+                          onClick={() => toggleSelected(o.id)}
+                          aria-label="选择订单"
+                        >
+                          {isSelected(o.id) ? "✓" : ""}
+                        </button>
+                      </td>
+                    )}
                     <td className="px-3 py-2 font-mono text-xs" title={o.id}>{shortId(o.id)}</td>
                     <td className="px-3 py-2 font-semibold text-brand-700 truncate" title={o.buyer_id}>{o.buyer_id}</td>
                     <td className="px-3 py-2">
@@ -513,6 +617,11 @@ export default function OrdersPage() {
                             <Button tone="danger" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "refund", orderId: o.id })}>退款</Button>
                             <Button tone="ghost" size="sm" type="button" onClick={() => void doResetPw(o.id)}>重置密码</Button>
                           </>
+                        )}
+                        {canDeleteOrders && (
+                          <Button tone="danger" size="sm" type="button" onClick={() => setDeleteDlg({ ids: [o.id] })}>
+                            删除记录
+                          </Button>
                         )}
                       </div>
                     </td>
@@ -579,6 +688,11 @@ export default function OrdersPage() {
                       <Button tone="danger" size="sm" type="button" onClick={() => setConfirmDlg({ kind: "refund", orderId: o.id })}>退款</Button>
                       <Button tone="ghost" size="sm" type="button" onClick={() => void doResetPw(o.id)}>重置</Button>
                     </>
+                  )}
+                  {canDeleteOrders && (
+                    <Button tone="danger" size="sm" type="button" onClick={() => setDeleteDlg({ ids: [o.id] })}>
+                      删除记录
+                    </Button>
                   )}
                 </div>
               </div>

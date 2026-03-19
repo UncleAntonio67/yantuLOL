@@ -104,6 +104,22 @@ class OrderOut(BaseModel):
 class OrderPage(PagedBase):
     items: list[OrderOut]
 
+class OrderDeleteInfoResponse(BaseModel):
+    order_id: str
+    status: str
+    created_at: datetime
+    confirmed_at: datetime | None
+    refunded_at: datetime | None
+
+
+class OrderBulkDeleteRequest(BaseModel):
+    order_ids: list[str] = Field(min_length=1)
+
+
+class OrderBulkDeleteResponse(BaseModel):
+    deleted_count: int
+    not_found: list[str] = []
+
 
 class ProductAttachmentOut(BaseModel):
     id: str

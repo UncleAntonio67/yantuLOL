@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+import shutil
 from typing import Tuple
 
 from app.core.config import get_settings
@@ -64,6 +65,39 @@ def put_bytes(*, uri: str, data: bytes, content_type: str | None = None) -> None
     p = Path(uri)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(data)
+
+
+def put_fileobj(*, uri: str, fileobj, content_type: str | None = None) -> None:
+    """
+    Store a file-like object to either local disk (plain path) or R2 (r2://bucket/key).
+
+    This avoids reading large uploads into memory and usually uploads faster
+    via multipart for large files.
+    """
+    if _is_r2_uri(uri):
+        loc = _parse_r2_uri(uri)
+        extra = {}
+        if content_type:
+            extra["ContentType"] = content_type
+        try:
+            fileobj.seek(0)
+        except Exception:
+            pass
+        # upload_fileobj uses multipart uploads when needed.
+        if extra:
+            _r2_client().upload_fileobj(fileobj, loc.bucket, loc.key, ExtraArgs=extra)
+        else:
+            _r2_client().upload_fileobj(fileobj, loc.bucket, loc.key)
+        return
+
+    p = Path(uri)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("wb") as f:
+        try:
+            fileobj.seek(0)
+        except Exception:
+            pass
+        shutil.copyfileobj(fileobj, f)
 
 
 def get_bytes(uri: str) -> tuple[bytes, str | None]:
