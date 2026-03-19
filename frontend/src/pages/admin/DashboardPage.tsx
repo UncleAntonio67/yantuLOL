@@ -205,7 +205,6 @@ export default function DashboardPage() {
           <div className="mt-3">
             发货成功后建议先在后台预览通知文案，再发送给买家。发现传播风险时，使用“退款”或“重置密码”可立刻阻断访问。
           </div>
-          {loading && <div className="mt-3 text-xs text-gray-500">提示: 首次加载较慢属正常，数据会缓存 5 秒。</div>}
         </details>
       </Card>
     </div>

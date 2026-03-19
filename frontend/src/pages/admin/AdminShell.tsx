@@ -314,7 +314,6 @@ export default function AdminShell() {
           <main>
             <div className="hidden md:flex mb-4 items-center justify-between">
               <div className="text-xs text-gray-600">{breadcrumb}</div>
-              <div className="text-xs text-gray-500">后端: /api</div>
             </div>
             <Outlet />
           </main>

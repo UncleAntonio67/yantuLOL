@@ -65,10 +65,6 @@ export default function LoginPage() {
             <Button type="submit" disabled={busy} className="w-full">
               {busy ? "登录中..." : "登录"}
             </Button>
-
-            <div className="text-xs text-gray-600 leading-5">
-              开发环境默认账号示例: <code className="rounded bg-white/70 px-1 py-0.5">test_admin / ChangeMe123!</code>
-            </div>
           </form>
         </Card>
       </div>
