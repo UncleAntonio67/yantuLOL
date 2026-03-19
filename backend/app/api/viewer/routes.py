@@ -372,10 +372,16 @@ def viewer_download(
         except Exception:
             raise HTTPException(status_code=500, detail="Failed to generate protected PDF")
 
+    safe_name = f"yantu_{o.id}_{attachment_id}".replace("/", "_").replace("\\", "_")
+    safe_name = "".join([c for c in safe_name if ("a" <= c <= "z") or ("A" <= c <= "Z") or ("0" <= c <= "9") or c in {"_", "-"}])
+    if not safe_name:
+        safe_name = "download"
+
     headers = {
         "Content-Type": "application/pdf",
         "Cache-Control": "no-store",
-        "Content-Disposition": f'attachment; filename="{Path(filename).stem}_download.pdf"',
+        # Keep filename ASCII to improve compatibility with built-in mobile download handlers.
+        "Content-Disposition": f'attachment; filename="{safe_name}.pdf"',
         "X-Content-Type-Options": "nosniff",
         "Cross-Origin-Resource-Policy": "cross-origin",
     }

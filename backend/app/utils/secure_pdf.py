@@ -113,6 +113,23 @@ def watermark_encrypt_pdf_bytes(
                         # Best-effort: skip this stamp. Never block download.
                         continue
 
+            # Footer watermark (subtle but visible).
+            try:
+                footer_fontsize = max(7, int(min(w, h) / 95))
+                footer_box = fitz.Rect(14, h - (footer_fontsize * 2.4), w - 14, h - 6)
+                page.insert_textbox(
+                    footer_box,
+                    wm_text,
+                    fontsize=footer_fontsize,
+                    fontname=fontname,
+                    fill=(0.15, 0.15, 0.15),
+                    fill_opacity=0.32,
+                    align=2,  # right
+                    overlay=True,
+                )
+            except Exception:
+                pass
+
         try:
             out = doc.write(
                 garbage=4,

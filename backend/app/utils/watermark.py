@@ -79,6 +79,24 @@ def watermark_pdf_bytes(*, pdf_bytes: bytes, watermark_text: str, font_file: str
                         # Do not fail the request. Best-effort: skip this stamp.
                         continue
 
+            # Add a subtle footer watermark. This helps on very clean PPT-style pages where diagonal text
+            # can be hard to notice, while still keeping reading comfortable.
+            try:
+                footer_fontsize = max(7, int(min(w, h) / 95))
+                footer_box = fitz.Rect(14, h - (footer_fontsize * 2.4), w - 14, h - 6)
+                page.insert_textbox(
+                    footer_box,
+                    wm_text,
+                    fontsize=footer_fontsize,
+                    fontname=fontname,
+                    fill=(0.15, 0.15, 0.15),
+                    fill_opacity=0.32,
+                    align=2,  # right
+                    overlay=True,
+                )
+            except Exception:
+                pass
+
         # Prefer classic xref tables/object layout for maximum compatibility across mobile WebViews.
         out = doc.write(garbage=4, deflate=True, use_objstms=False, use_xref_streams=False)
         # Some PDFs can become unreadable after rewriting; never block viewing.

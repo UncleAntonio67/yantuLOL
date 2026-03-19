@@ -284,6 +284,12 @@ export default function ViewerPage() {
       .catch((e) => {
         if (cancelled) return;
         const msg = String(e?.message || e);
+        // WeChat WebView: if PDF.js fails to initialize (common), fall back to native iframe viewer.
+        if (isWeChat && msg.includes("getOrInsertComputed")) {
+          setErr("微信内渲染模式兼容性不足，已自动切换到兼容模式。若仍空白，请点击右上角使用系统浏览器打开。");
+          setViewMode("native");
+          return;
+        }
         // Transient 500s can happen due to cold starts or storage hiccups. Retry once.
         if (!didRetryRef.current && msg.includes("Unexpected server response") && msg.includes("500")) {
           didRetryRef.current = true;
@@ -320,6 +326,31 @@ export default function ViewerPage() {
       }
     };
   }, [pdfUrl, retryNonce]);
+
+  // If the order gets confirmed after the viewer is already open, auto-refresh meta for a short time.
+  useEffect(() => {
+    if (!viewerToken) return;
+    if (!meta) return;
+    if (meta.can_download) return;
+    let stopped = false;
+    const id = window.setInterval(async () => {
+      if (stopped) return;
+      try {
+        const m = await fetchViewerMeta(viewerToken);
+        setMeta(m);
+        if (m.can_download) {
+          stopped = true;
+          window.clearInterval(id);
+        }
+      } catch {
+        // ignore
+      }
+    }, 12_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [viewerToken, meta?.can_download]);
 
   // Best-effort: block common download/print shortcuts, and make printing blank.
   useEffect(() => {
@@ -373,12 +404,18 @@ export default function ViewerPage() {
     try {
       const blob = await downloadViewerPdf(viewerToken, attId, password);
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename.endsWith(".pdf") ? filename.replace(/\.pdf$/i, "_download.pdf") : `${filename}_download.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+
+      // WeChat often blocks "download attribute" behavior. Open a new tab as a fallback.
+      if (isWeChat) {
+        window.open(url, "_blank");
+      } else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename.endsWith(".pdf") ? filename.replace(/\.pdf$/i, "_download.pdf") : `${filename}_download.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
       URL.revokeObjectURL(url);
     } catch (ex: any) {
       setErr(normalizeViewerError(ex?.message || "下载失败"));
