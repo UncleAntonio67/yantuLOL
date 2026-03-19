@@ -16,6 +16,32 @@ function summaryText(s: string, max = 72) {
   return t.length > max ? t.slice(0, max) + "..." : t;
 }
 
+function CoverThumb(props: { src?: string | null; alt: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const src = props.src || "";
+  const hasSrc = Boolean(src);
+  return (
+    <div className="h-12 w-12 rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white overflow-hidden relative shrink-0">
+      {!loaded && hasSrc && <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-gray-100 via-white to-gray-100" />}
+      {hasSrc ? (
+        <img
+          src={src}
+          alt={props.alt}
+          className={["h-12 w-12 object-cover bg-white transition-opacity", loaded ? "opacity-100" : "opacity-0"].join(" ")}
+          loading="lazy"
+          decoding="async"
+          width={48}
+          height={48}
+          onLoad={() => setLoaded(true)}
+          onError={() => setLoaded(true)}
+        />
+      ) : (
+        <div className="h-12 w-12 flex items-center justify-center text-xs font-black text-gray-400">无图</div>
+      )}
+    </div>
+  );
+}
+
 export default function ProductsPage() {
   const nav = useNavigate();
 
@@ -160,13 +186,7 @@ export default function ProductsPage() {
                   {items.map((p) => (
                     <tr key={p.id} className="hover:bg-white/60 align-top">
                       <td className="px-3 py-3">
-                        {p.cover_image ? (
-                          <img src={p.cover_image} alt={`${p.name} cover`} className="h-12 w-12 rounded-xl object-cover border border-gray-100 bg-white" loading="lazy" />
-                        ) : (
-                          <div className="h-12 w-12 rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white flex items-center justify-center text-xs font-black text-gray-400">
-                            无图
-                          </div>
-                        )}
+                        <CoverThumb src={p.cover_image} alt={`${p.name} cover`} />
                       </td>
                       <td className="px-3 py-3">
                         <div className="font-bold text-gray-900 truncate" title={p.name}>{p.name}</div>
@@ -205,15 +225,9 @@ export default function ProductsPage() {
               {items.map((p) => (
                 <div key={p.id} className="rounded-2xl border border-gray-100 bg-white/80 p-4">
                   <div className="flex gap-3">
-                    <div className="shrink-0">
-                      {p.cover_image ? (
-                        <img src={p.cover_image} alt={`${p.name} cover`} className="h-12 w-12 rounded-xl object-cover border border-gray-100 bg-white" loading="lazy" />
-                      ) : (
-                        <div className="h-12 w-12 rounded-xl border border-gray-100 bg-gradient-to-br from-gray-50 to-white flex items-center justify-center text-xs font-black text-gray-400">
-                          无图
-                        </div>
-                      )}
-                    </div>
+                  <div className="shrink-0">
+                    <CoverThumb src={p.cover_image} alt={`${p.name} cover`} />
+                  </div>
                     <div className="min-w-0 flex-1">
                       <div className="font-black text-gray-900 truncate">{p.name}</div>
                       <div className="mt-1 text-xs text-gray-600 line-clamp-2">{summaryText(p.description, 120)}</div>

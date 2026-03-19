@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import Button from "../../components/Button";
 import Card from "../../components/Card";
 import ConfirmDialog from "../../components/ConfirmDialog";
+import Spinner from "../../components/Spinner";
 import { Input, Label } from "../../components/Field";
 import Segmented from "../../components/Segmented";
 import { apiJson, apiJsonCached } from "../../lib/api";
@@ -11,6 +12,7 @@ import type { AdminMe, TeamMember, TeamMemberDeleteInfo } from "../../lib/types"
 export default function TeamPage() {
   const [me, setMe] = useState<AdminMe | null>(null);
   const [items, setItems] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [newRole, setNewRole] = useState<"normal_admin" | "super_admin">("normal_admin");
@@ -23,6 +25,7 @@ export default function TeamPage() {
 
   async function refresh() {
     setErr(null);
+    setLoading(true);
     try {
       const [m, t] = await Promise.all([apiJsonCached<AdminMe>("/api/admin/me", 10000), apiJsonCached<TeamMember[]>("/api/admin/team", 10000)]);
       if (!Array.isArray(t)) throw new Error("团队列表返回格式错误");
@@ -30,6 +33,8 @@ export default function TeamPage() {
       setItems(t);
     } catch (ex: any) {
       setErr(ex?.message || "加载失败");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -106,34 +111,43 @@ export default function TeamPage() {
       {err && <div className="rounded-2xl border border-brand-200 bg-brand-50 px-5 py-4 text-sm text-brand-800">{err}</div>}
 
       <Card>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {items.map((m) => (
-            <div key={m.id} className="rounded-2xl border border-gray-100 bg-white/80 p-5">
-              <div className="flex items-center justify-between">
-                <div className="font-black text-gray-900 truncate">{m.nickname}</div>
-                <div className={m.role === "super_admin" ? "text-xs font-bold text-brand-700" : "text-xs text-gray-600"}>
-                  {m.role === "super_admin" ? "超级管理员" : "管理员"}
+        {loading ? (
+          <div className="py-10 flex items-center justify-center">
+            <Spinner className="h-6 w-6 text-gray-500" label="加载中" />
+            <span className="sr-only">加载中</span>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="text-sm text-gray-600">暂无管理员账号</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {items.map((m) => (
+              <div key={m.id} className="rounded-2xl border border-gray-100 bg-white/80 p-5">
+                <div className="flex items-center justify-between">
+                  <div className="font-black text-gray-900 truncate">{m.nickname}</div>
+                  <div className={m.role === "super_admin" ? "text-xs font-bold text-brand-700" : "text-xs text-gray-600"}>
+                    {m.role === "super_admin" ? "超级管理员" : "管理员"}
+                  </div>
                 </div>
-              </div>
-              <div className="mt-2 text-xs text-gray-600">登录名: {m.username}</div>
-              <div className="mt-1 text-xs text-gray-600">状态: {m.is_active ? "启用" : "禁用"}</div>
+                <div className="mt-2 text-xs text-gray-600">登录名: {m.username}</div>
+                <div className="mt-1 text-xs text-gray-600">状态: {m.is_active ? "启用" : "禁用"}</div>
 
-              {canCreate && (
-                <div className="mt-4 flex justify-end gap-2">
-                  <Button
-                    tone="danger"
-                    size="sm"
-                    type="button"
-                    disabled={deleteInfoBusyId === m.id || deleteBusyId === m.id || (me ? m.id === me.id : false)}
-                    onClick={() => void askDelete(m)}
-                  >
-                    删除
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                {canCreate && (
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button
+                      tone="danger"
+                      size="sm"
+                      type="button"
+                      disabled={deleteInfoBusyId === m.id || deleteBusyId === m.id || (me ? m.id === me.id : false)}
+                      onClick={() => void askDelete(m)}
+                    >
+                      删除
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {modalOpen && (

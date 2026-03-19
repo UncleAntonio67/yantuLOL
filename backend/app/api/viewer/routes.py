@@ -261,7 +261,9 @@ def viewer_document(viewer_token: str, attachment_id: str, request: Request, db:
         "Cache-Control": "private, max-age=60",
         "Content-Disposition": f'inline; filename="{Path(filename).name}"',
         "X-Content-Type-Options": "nosniff",
-        "Cross-Origin-Resource-Policy": "same-origin",
+        # Allow Chrome/WeChat built-in PDF viewers (often extension/webview origins) to fetch the PDF.
+        # Access is still protected by the viewer_token in the URL and order status checks.
+        "Cross-Origin-Resource-Policy": "cross-origin",
         "Accept-Ranges": "bytes",
     }
 
@@ -354,7 +356,7 @@ def viewer_download(
         "Cache-Control": "no-store",
         "Content-Disposition": f'attachment; filename="{Path(filename).stem}_download.pdf"',
         "X-Content-Type-Options": "nosniff",
-        "Cross-Origin-Resource-Policy": "same-origin",
+        "Cross-Origin-Resource-Policy": "cross-origin",
     }
     return Response(content=out, media_type="application/pdf", headers=headers)
 
